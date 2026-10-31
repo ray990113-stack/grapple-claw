@@ -652,15 +652,15 @@ body {
         · <strong>瓦斯容量</strong>：上限 <code>1000</code>，發射鉤爪、空中飛行、推進與高空落地緩衝皆會消耗，隨時間自動補充。
       </div>
       <div class="manual-card">
-        <strong>🤸 空中翻滾（Space）、閃身（Ctrl）與反向後撤（X）</strong><br>
+        <strong>🤸 空中翻滾（Space）、閃身（連點 WASD）與反向後撤（X）</strong><br>
         · <strong>空中翻滾</strong>：在空中按 <kbd>Space</kbd>（長按可持續翻滾），只有鉤索拉扯時翻滾才會使軌跡往上偏移。<br>
-        · <strong>閃身</strong>：地面按 <kbd>Ctrl</kbd>＋<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 往指定方向快速閃避，帶半透明殘影，閃身瞬間不會被擊中（冷卻 <code>1 秒</code>）；不按方向則向後閃。<br>
+        · <strong>閃身</strong>：地面<strong>連點兩下</strong> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 往該按鍵方向快速閃避，帶半透明殘影，閃身瞬間不會被擊中（冷卻 <code>1 秒</code>）。<br>
         · <strong>鉤人</strong>：鉤索可鉤住其他玩家，被鉤者會被拉向你；你在空中時會飛向對方，鉤住時持續消耗瓦斯。被鉤時連點 <kbd>Space</kbd> 填滿掙扎條即可脫離。<br>
         · <strong>反向噴氣後撤</strong>：按 <kbd>X</kbd> 瞬間往鏡頭後方噴射彈開並切斷鉤索，消耗 <code>140</code> 瓦斯，冷卻 <code>0.9</code> 秒。
       </div>
       <div class="manual-card">
         <strong>🏃 移動與視角控制</strong><br>
-        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍／空中翻滾 · <kbd>Ctrl</kbd>+<kbd>WASD</kbd> 閃身 · <kbd>C</kbd> 外觀自訂 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍／空中翻滾 · 連點 <kbd>WASD</kbd> 閃身 · <kbd>C</kbd> 外觀自訂 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
       </div>
     </div>
 
@@ -1158,7 +1158,7 @@ body {
 
   var NPC_PROFILES = [
     { name: '嚮導阿哲', color: 0x10b981, hat: 'visor', line: '橘色門框的大樓都能走進去！爬上頂樓能看清整座迷宮的走向喔。' },
-    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '空中按 Space 翻滾，地面按 Ctrl+方向鍵可以閃身躲避～' },
+    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '空中按 Space 翻滾，地面連點兩下 WASD 可以閃身躲避～' },
     { name: '機動教官', color: 0xf59e0b, hat: 'crown', line: '每次發射鉤索會消耗 50 瓦斯，高空落地緩衝噴氣則可以按 R 隨時切換開關！' },
     { name: '機械波波', color: 0x8b5cf6, hat: 'antenna', line: '按 C 鍵打開外觀自訂，幫你的方塊小人換上皇冠或霓虹尾跡！' },
     { name: '探險家老K', color: 0xef4444, hat: 'tophat', line: '現在可進入的大樓空間更寬敞、窗戶也加大了，可以直接用鉤索從窗戶飛進飛出喔！' }
@@ -2418,6 +2418,10 @@ body {
     var bx = tipPos.x,  by = tipPos.y,  bz = tipPos.z;
     var segLen = basePos.distanceTo(tipPos);
     if (segLen < 0.05) return false;
+    // Extended reach: the hit segment extends well past the visible tip (blade attack range up)
+    var BLADE_REACH_EXTRA = 3.2, BLADE_HIT_R = 1.25;
+    var exK = (segLen + BLADE_REACH_EXTRA) / segLen;
+    var wbx = ax + (bx - ax) * exK, wby = ay + (by - ay) * exK, wbz = az + (bz - az) * exK;
 
     var fYaw = firstPerson ? (yaw + Math.PI) : faceYaw;
     var fwdX = Math.sin(fYaw), fwdZ = Math.cos(fYaw);
@@ -2430,8 +2434,8 @@ body {
       // Find closest Y on NPC torso to the blade segment
       var midY = (ay + by) * 0.5;
       var testY = Math.max(npc.y + 0.15, Math.min(npc.y + 1.85, midY));
-      var dNpc = distPointToBladeSegment(npc.x, testY, npc.z, ax, ay, az, bx, by, bz);
-      if (dNpc <= 0.58) {
+      var dNpc = distPointToBladeSegment(npc.x, testY, npc.z, ax, ay, az, wbx, wby, wbz);
+      if (dNpc <= BLADE_HIT_R) {
         hitAny = true;
         var dxN = npc.x - pos.x, dzN = npc.z - pos.z;
         var distN = Math.hypot(dxN, dzN) || 1;
@@ -2449,7 +2453,7 @@ body {
       }
     }
 
-    if (NETHIT(ax, ay, az, bx, by, bz, 80, 0.7, 1)) hitAny = true;   // PvP: blade = 80 dmg
+    if (NETHIT(ax, ay, az, wbx, wby, wbz, 80, BLADE_HIT_R, 1)) hitAny = true;   // PvP: blade = 80 dmg
     // 2. Check physical blade segment contact with Building Walls / Floors (strictly along base -> tip)
     if (!weapon.wallHitThisSlash) {
       var dxB = (bx - ax) / segLen, dyB = (by - ay) / segLen, dzB = (bz - az) / segLen;
@@ -2702,9 +2706,15 @@ body {
     if (e.code === 'KeyC' && !e.repeat) { setManualOpen(true); toggleCustomPanel(true); }
     if (e.code === 'KeyR' && !e.repeat) { toggleLandingJet(); }
     var isWasdK = e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD';
-    if ((e.code === 'ControlLeft' || e.code === 'ControlRight') && !e.repeat) dodgeWait = (keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD) ? 0.001 : 0.14;   // Ctrl first: wait a moment for a direction key
-    if (isWasdK && e.ctrlKey && !e.repeat) dodgeWait = 0.001;                                                                                              // direction while Ctrl is held
-    if (e.ctrlKey && (e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD')) e.preventDefault();
+    if (isWasdK && !e.repeat) {   // double-tap a WASD key (within 0.28s) = dodge toward that key's direction
+      var tapNow = performance.now();
+      if (tapNow - (lastTapT[e.code] || 0) < 280) {
+        dodgeDirF = e.code === 'KeyW' ? 1 : (e.code === 'KeyS' ? -1 : 0);
+        dodgeDirR = e.code === 'KeyD' ? 1 : (e.code === 'KeyA' ? -1 : 0);
+        dodgeWait = 0.001;
+        lastTapT[e.code] = 0;
+      } else lastTapT[e.code] = tapNow;
+    }
     if (e.code === 'KeyM' && !e.repeat) { muteBtn.click(); }
     keys[e.code] = true;
     if (e.code.indexOf('Arrow') === 0) e.preventDefault();
@@ -3045,7 +3055,7 @@ body {
   var fallPeakY = 0;
   var preLandingBurstUsed = false;
   var ROLL_T = 0.52, ROLL_CY = 1.05, ROLL_CD = 1.0;   // air roll: duration, pivot height, and 1.0s cooldown
-  var flipTimer = 0, rollCd = 0, rollDashT = 0, rdx = 0, rdz = 0, dodgeWait = 0, ghostT = 0, spaceNeedsRelease = false;                      // forward roll in the air & cooldown timer
+  var flipTimer = 0, rollCd = 0, rollDashT = 0, rdx = 0, rdz = 0, dodgeWait = 0, dodgeDirF = 0, dodgeDirR = 0, lastTapT = {}, ghostT = 0, spaceNeedsRelease = false;                      // forward roll in the air & cooldown timer
   var dashTimer = 0;
   var faceYaw = 0, phase = 0, airT = 0;
   var camFocus = new THREE.Vector3(0, 1.5, 0);
@@ -3729,15 +3739,14 @@ body {
     if (flipTimer <= 0 && !grounded && !manualOpen && ((keys.Space && !spaceNeedsRelease) || airTapRoll)) {
       flipTimer = ROLL_T; spawnAirRollFX(pos.x, pos.y, pos.z); sfxJump(true);
     }
-    // Ground dodge (閃身): Ctrl (+ W/A/S/D picks the direction) = short invulnerable dash with translucent afterimages, 1.0s cooldown.
+    // Ground dodge (閃身): double-tap W/A/S/D (direction of the tapped key) = short invulnerable dash with translucent afterimages, 1.0s cooldown.
     if (rollDashT > 0) rollDashT = Math.max(0, rollDashT - dt);
     if (dodgeWait > 0) {
       dodgeWait -= dt;
       if (dodgeWait <= 0) {
         dodgeWait = 0;
         if (grounded && rollCd <= 0 && rollDashT <= 0 && flipTimer <= 0 && !manualOpen) {
-          var dfI = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), drI = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-          if (dfI === 0 && drI === 0) dfI = -1;   // no direction held: step backwards
+          var dfI = dodgeDirF, drI = dodgeDirR;
           var ddx = -Math.sin(yaw) * dfI + Math.cos(yaw) * drI, ddz = -Math.cos(yaw) * dfI - Math.sin(yaw) * drI, ddl = Math.hypot(ddx, ddz) || 1;
           rdx = ddx / ddl; rdz = ddz / ddl; rollDashT = 0.22; rollCd = ROLL_CD; ghostT = 0;
           sfxJump(true);

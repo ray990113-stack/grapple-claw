@@ -77,7 +77,7 @@ wss.on('connection', (ws) => {
         if (hk && hk.hooking === c.id) { hk.hooking = null; send(hk, { t: 'cut' }); }
       }
     } else if (m.t === 'hit') {
-      // server-authoritative damage: blade 80 (close range, 0.5s cooldown), bullet 10 (50ms cooldown)
+      // server-authoritative damage: blade 80 (range 15, 0.5s cooldown), bullet 10 (50ms cooldown)
       const dmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
       if (!dmg || c.dead) return;
       let target = null;
@@ -85,7 +85,7 @@ wss.on('connection', (ws) => {
       if (!target || target === c || target.dead || target.iv) return;   // dodging (invulnerable) targets can't be hit
       const now = Date.now();
       const dist = Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z);
-      if (dmg === 80) { if (now - c.last80 < 500 || dist > 9) return; c.last80 = now; }
+      if (dmg === 80) { if (now - c.last80 < 500 || dist > 15) return; c.last80 = now; }
       else { if (now - c.last10 < 50 || dist > 150) return; c.last10 = now; }
       target.hp = Math.max(0, target.hp - dmg);
       send(target, { t: 'hp', hp: target.hp });
