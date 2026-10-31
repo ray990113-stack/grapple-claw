@@ -3358,57 +3358,29 @@ body {
     }
     return hit;
   }
-  function netDie(byPeer) {
-    NET.hp = 0; NET.deaths++; NET.r.emit('kill', { by: byPeer, n: NET.name, to: NET.me });
-    netFeed('你被擊倒了'); netHud();
-    setTimeout(function () {
-      pos.set((Math.random() - 0.5) * 6, 0.1, (Math.random() - 0.5) * 6); vel.x = 0; vel.z = 0; vy = 0; try { if (grapple.active) grapple.active = false; } catch (e) {} 
-      NET.hp = 100; netHud();
-    }, 1500);
-  }
   function netStart(roomName) {
     netMsg('連線中…');
-    var timeout = setTimeout(function () { netMsg('無法連線:線上對戰需登入並在 claude.ai 開啟'); }, 11000);
-    claude.use('room').then(function (room) {
-      if (!room) { clearTimeout(timeout); netMsg('無法連線:線上對戰需登入並在 claude.ai 開啟'); return; }
-      return Promise.resolve(room.join(roomName)).then(function (r) {
-        clearTimeout(timeout);
-        NET.r = r; NET.on = true; NET.hp = 100;
-        r.onPeers(function (ch) {
-          var seen = {}, n = 0;
-          ch.peers.forEach(function (p) {
-            if (p.isMe && p.sameTab) { NET.me = p.peer; return; }
-            if (p.isMe || p.kind !== 'viewer') return;
-            seen[p.peer] = 1; n++;
-            var R = NET.rem[p.peer] || (NET.rem[p.peer] = makeRemote(p.peer)), q = p.presence || {};
-            if (typeof q.x === 'number') {
-              R.tx = q.x; R.ty = q.y; R.tz = q.z; R.yaw = q.yaw || 0; R.hp = typeof q.hp === 'number' ? q.hp : 100;
-              R.name = String(q.n || '玩家').slice(0, 10); R.bl = q.w !== 'airgun';
-              if (!R.init) { R.init = true; R.g.position.set(R.tx, R.ty, R.tz); }
-            }
-          });
-          for (var id in NET.rem) if (!seen[id]) { scene.remove(NET.rem[id].g); delete NET.rem[id]; }
-          $m('netInfo').textContent = (roomName === 'pub' ? '公用房間' : '私人房間 ' + roomName.slice(2).toUpperCase()) + ' · 在線 ' + (n + 1) + ' 人';
-        });
-        r.on('hit', function (m) {
-          if (!m.data || m.data.to !== NET.me || NET.hp <= 0 || m.isMe) return;
-          NET.hp -= Math.min(100, Math.max(0, Number(m.data.d) || 0)); netHud();
-          $m('hurt').style.opacity = 1; setTimeout(function () { $m('hurt').style.opacity = 0; }, 180);
-          playTone(160, 120, 0.12, 'sawtooth', 0.13);
-          if (NET.hp <= 0) netDie(m.peer);
-        });
-        r.on('kill', function (m) {
-          if (!m.data) return;
-          var kn = NET.rem[m.peer] ? NET.rem[m.peer].name : (m.isMe ? NET.name : '玩家');
-          netFeed((m.data.n || '玩家') + ' 被 ' + (m.data.by === NET.me ? '你' : '其他玩家') + ' 擊倒');
-          if (m.data.by === NET.me) { NET.kills++; netHud(); }
-        });
-        netHud(); $m('netHud').style.display = 'flex';
-        $m('menuBtn').style.display = 'block'; $m('menu').style.display = 'none';
+    var ws, opened = false, ready = false;
+    try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host); }
+    catch (e) { netMsg('無法連線'); menuOpen = true; return; }
+    var fail = setTimeout(function () { if (!opened) { netMsg('連線逾時,請再試一次'); menuOpen = true; try { ws.close(); } catch (e) {} } }, 20000);
+    var send = function (o) { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
+    NET.r = { emit: function (topic, data) { var o = { t: topic }; for (var k in data) o[k] = data[k]; send(o); } };
+    ws.onopen = function () { opened = true; send({ t: 'join', room: roomName, name: NET.name }); };
+    ws.onerror = function () { if (!opened) { netMsg('連線失敗:請確認是從 Render 網址開啟'); menuOpen = true; } };
+    ws.onclose = function () {
+      clearTimeout(fail);
+      if (ready) { NET.on = false; netFeed('連線中斷,請重新整理'); }
+    };
+    ws.onmessage = function (ev) {
+      var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.t === 'you') {
+        clearTimeout(fail); ready = true; NET.me = m.id; NET.on = true; NET.hp = 100; NET.roomName = roomName;
+        netHud(); $m('netHud').style.display = 'flex'; $m('menuBtn').style.display = 'block'; $m('menu').style.display = 'none';
         setInterval(function () {
           if (!NET.on) return;
           var f2 = function (v) { return Math.round(v * 100) / 100; };
-          r.presence({ x: f2(pos.x), y: f2(pos.y), z: f2(pos.z), yaw: f2(faceYaw), hp: Math.round(NET.hp), n: NET.name, w: weapon.mode });
+          send({ t: 'p', x: f2(pos.x), y: f2(pos.y), z: f2(pos.z), yaw: f2(faceYaw), w: weapon.mode });
         }, 50);
         (function loop() {
           requestAnimationFrame(loop);
@@ -3420,8 +3392,33 @@ body {
             drawLabel(R.lab, R.name, R.hp);
           }
         })();
-      });
-    }).catch(function () { clearTimeout(timeout); netMsg('連線失敗'); });
+      } else if (m.t === 'n') {
+        $m('netInfo').textContent = (NET.roomName === 'pub' ? '公用房間' : '私人房間 ' + String(NET.roomName).slice(2).toUpperCase()) + ' · 在線 ' + m.n + ' 人';
+      } else if (m.t === 'p') {
+        var R = NET.rem[m.id] || (NET.rem[m.id] = makeRemote(m.id));
+        R.tx = m.x; R.ty = m.y; R.tz = m.z; R.yaw = m.yaw || 0; R.hp = typeof m.hp === 'number' ? m.hp : 100;
+        R.name = String(m.n || '玩家').slice(0, 10); R.bl = m.w !== 'airgun';
+        if (!R.init) { R.init = true; R.g.position.set(R.tx, R.ty, R.tz); }
+      } else if (m.t === 'left') {
+        if (NET.rem[m.id]) { scene.remove(NET.rem[m.id].g); delete NET.rem[m.id]; }
+      } else if (m.t === 'hp') {
+        var old = NET.hp; NET.hp = m.hp; netHud();
+        if (m.hp < old) {
+          $m('hurt').style.opacity = 1; setTimeout(function () { $m('hurt').style.opacity = 0; }, 180);
+          playTone(160, 120, 0.12, 'sawtooth', 0.13);
+        }
+      } else if (m.t === 'kill') {
+        netFeed((m.n || '玩家') + ' 被 ' + (m.by === NET.me ? '你' : (m.bn || '其他玩家')) + ' 擊倒');
+        if (m.by === NET.me) { NET.kills++; netHud(); }
+        if (m.to === NET.me) {
+          NET.deaths++; netHud();
+          setTimeout(function () {
+            pos.set((Math.random() - 0.5) * 6, 0.1, (Math.random() - 0.5) * 6);
+            vel.x = 0; vel.z = 0; vy = 0; try { if (grapple.active) grapple.active = false; } catch (e) {}
+          }, 1500);
+        }
+      }
+    };
   }
   var menuOpen = true;
   ['keydown', 'keyup'].forEach(function (ev) { window.addEventListener(ev, function (e) { if (menuOpen && e.target.id !== 'mCode') { e.stopImmediatePropagation(); } }, true); });
