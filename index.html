@@ -3321,16 +3321,104 @@ body {
     c.fillStyle = hp > 40 ? '#34d399' : '#ef4444'; c.fillRect(38, 40, 180 * Math.max(0, hp) / 100, 10);
     sp.userData.tex.needsUpdate = true;
   }
+  // Remote players are a clone of the local player's own rig, so everyone sees the same model (colors, hat, gear, blades).
   function makeRemote(id) {
-    var g = new THREE.Group(), col = remColor(id);
-    var m = function (w, h, d, x, y, z, c) { var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: c })); b.position.set(x, y, z); g.add(b); return b; };
-    m(0.7, 0.9, 0.4, 0, 1.15, 0, col); m(0.5, 0.5, 0.5, 0, 1.85, 0, 0xf1c9a5);
-    m(0.25, 0.7, 0.25, -0.2, 0.35, 0, 0x1f2937); m(0.25, 0.7, 0.25, 0.2, 0.35, 0, 0x1f2937);
-    m(0.2, 0.7, 0.2, -0.48, 1.2, 0.1, col); m(0.2, 0.7, 0.2, 0.48, 1.2, 0.1, col);
-    var bl = m(0.04, 0.12, 1.4, -0.48, 1.3, 0.9, 0xf8fafc), br = m(0.04, 0.12, 1.4, 0.48, 1.3, 0.9, 0xf8fafc);
-    var lab = makeLabel(); g.add(lab);
+    var g = new THREE.Group(), cl = rig.clone(true);
+    var O = [], C = [];
+    rig.traverse(function (o) { O.push(o); }); cl.traverse(function (o) { C.push(o); });
+    var src = { armL: armL, armR: armR, elbowL: elbowL, elbowR: elbowR, legL: legL, legR: legR, kneeL: kneeL, kneeR: kneeR,
+      hL: steelBladeL.holder, hR: steelBladeR.holder, bpL: steelBladeL.bladePart, bpR: steelBladeR.bladePart,
+      auL: steelBladeL.auraMesh, auR: steelBladeR.auraMesh, gbL: steelBladeL.gunBarrelPart, gbR: steelBladeR.gunBarrelPart,
+      hbL: waistGearL.holsterBarrelPart, hbR: waistGearR.holsterBarrelPart, hhL: waistGearL.holsterHoseMesh, hhR: waistGearR.holsterHoseMesh,
+      hat: hatHolder, body: body, e0: eyeMeshes[0], e1: eyeMeshes[1], rgL: waistGearL.rearGroup, rgR: waistGearR.rearGroup,
+      tpL: waistGearL.tipRef, tpR: waistGearR.tipRef, hpL: steelBladeL.hosePortRef, hpR: steelBladeR.hosePortRef, tvL: waistGearL.tankValveWorldRef, tvR: waistGearR.tankValveWorldRef };
+    var n = {};
+    for (var k in src) { var ix = O.indexOf(src[k]); if (ix >= 0) n[k] = C[ix]; }
+    ['body', 'hat', 'e0', 'e1', 'legL', 'legR', 'rgL', 'rgR'].forEach(function (k) { if (n[k]) n[k].visible = true; });   // never inherit first-person hiding
+    var bm = bodyMat.clone(), em = eyeMat.clone();
+    var gms = [gunReceiverDynMat, gunShroudDynMat, gunBarrelDynMat, gunMuzzleDynMat], gcl = gms.map(function (m) { return m.clone(); });
+    cl.traverse(function (o) { if (o.isMesh) { if (o.material === bodyMat) o.material = bm; else if (o.material === eyeMat) o.material = em; else { var gi = gms.indexOf(o.material); if (gi >= 0) o.material = gcl[gi]; } } });
+    var mkLine = function (geo, mat) { var m = new THREE.Mesh(geo, mat); m.visible = false; m.frustumCulled = false; scene.add(m); return m; };
+    var wire = [mkLine(wireGeo, wireMat), mkLine(wireGeo, wireMat)], hose = [mkLine(handHoseGeo, gearHoseMat), mkLine(handHoseGeo, gearHoseMat)], claw = [buildClawHook(), buildClawHook()];
+    g.add(cl);
+    var lab = makeLabel(); lab.position.y = 3.1; g.add(lab);
     scene.add(g);
-    return { g: g, lab: lab, blades: [bl, br], tx: 0, ty: 0, tz: 0, ty2: 0, hp: 100, name: '玩家', init: false };
+    return { g: g, cl: cl, lab: lab, n: n, bm: bm, em: em, gm: gcl, wire: wire, hose: hose, claw: claw, gr: null, air: false, look: '', tx: 0, ty: 0, tz: 0, hp: 100, name: '玩家', init: false };
+  }
+  function removeRemote(id) {
+    var R = NET.rem[id]; if (!R) return;
+    scene.remove(R.g); R.bm.dispose(); R.em.dispose(); R.gm.forEach(function (m) { m.dispose(); });
+    for (var s2 = 0; s2 < 2; s2++) { scene.remove(R.wire[s2]); scene.remove(R.hose[s2]); scene.remove(R.claw[s2]); }
+    delete NET.rem[id];
+  }
+  function r3(v) { return Math.round(v * 1000) / 1000; }
+  function getPose() {   // 42 numbers: the local joints exactly as drawn on screen (order must match applyPose)
+    var q = [];
+    [armL, armR].forEach(function (a) { q.push(r3(a.position.x), r3(a.position.y), r3(a.position.z), r3(a.rotation.x), r3(a.rotation.y), r3(a.rotation.z)); });
+    [elbowL, elbowR, legL, legR, kneeL, kneeR].forEach(function (j) { q.push(r3(j.rotation.x)); });
+    q.push(r3(rig.rotation.x), r3(rig.rotation.y), r3(rig.position.y), r3(rig.position.z));
+    [steelBladeL, steelBladeR].forEach(function (b) { var h = b.holder; q.push(r3(h.quaternion.x), r3(h.quaternion.y), r3(h.quaternion.z), r3(h.quaternion.w), r3(h.position.x), r3(h.position.y), r3(h.position.z)); });
+    [steelBladeL, steelBladeR].forEach(function (b) { q.push(r3(b.bladePart.position.z), r3(b.bladePart.scale.z)); });
+    var vis = [steelBladeL.bladePart, steelBladeR.bladePart, steelBladeL.auraMesh, steelBladeR.auraMesh, steelBladeL.gunBarrelPart, steelBladeR.gunBarrelPart,
+      waistGearL.holsterBarrelPart, waistGearR.holsterBarrelPart, waistGearL.holsterHoseMesh, waistGearR.holsterHoseMesh], f = 0;
+    for (var i = 0; i < vis.length; i++) if (vis[i].visible) f |= (1 << i);
+    if (weapon.mode === 'airgun') f |= 1024;   // hand hoses
+    if (firstPerson) f |= 2048;                // sender is in first person
+    q.push(f, r3(gunReceiverDynMat.color.r));  // flags, gun heat
+    return q;
+  }
+  function getGrapple() {
+    if (!grapple.active) return 0;
+    var r2 = function (v) { return Math.round(v * 100) / 100; };
+    return [r2(grapple.shootProgress), r2(grapple.anchorL.x), r2(grapple.anchorL.y), r2(grapple.anchorL.z), r2(grapple.anchorR.x), r2(grapple.anchorR.y), r2(grapple.anchorR.z), r2(grapple.rayDir.x), r2(grapple.rayDir.y), r2(grapple.rayDir.z)];
+  }
+  var HEAT = [   // same formulas the local gun uses: [color rgb lo,hi x3, emissive rgb lo,hi x3]
+    [.16, .78, .20, .16, .25, .16, .06, .65, .09, .06, .16, .04], [.39, .95, .45, .22, .55, .20, .12, .82, .16, .10, .23, .06],
+    [.58, 1.0, .64, .28, .72, .24, .12, .88, .16, .12, .23, .06], [.85, 1.0, .47, .25, .02, .18, .27, .92, .10, .14, .01, .06]];
+  function applyPose(R, q) {
+    if (!q || q.length < 41) return;
+    var n = R.n, i = 0, f = q[40], fp = !!(f & 2048), gun = !!(f & 16);
+    [n.armL, n.armR].forEach(function (a, s) {
+      if (a) {
+        var sd = s ? 1 : -1, ox = 0, oy = 0, oz = 0;
+        if (fp) { ox = sd * (gun ? 0.24 : 0.22); oy = gun ? 0.30 : 0.43; oz = gun ? -0.14 : -0.25; }   // first-person arm anchor -> third-person anchor
+        a.position.set(q[i] + ox, q[i + 1] + oy, q[i + 2] + oz); a.rotation.set(q[i + 3], q[i + 4], q[i + 5]);
+      }
+      i += 6;
+    });
+    [n.elbowL, n.elbowR, n.legL, n.legR, n.kneeL, n.kneeR].forEach(function (j) { if (j) j.rotation.x = q[i]; i++; });
+    R.cl.rotation.x = q[i]; R.cl.rotation.y = q[i + 1]; R.cl.position.y = q[i + 2]; R.cl.position.z = q[i + 3]; i += 4;
+    [n.hL, n.hR].forEach(function (h) { if (h) { h.quaternion.set(q[i], q[i + 1], q[i + 2], q[i + 3]); h.position.set(q[i + 4], q[i + 5], q[i + 6]); } i += 7; });
+    [n.bpL, n.bpR].forEach(function (b) { if (b) { b.position.z = q[i]; b.scale.z = q[i + 1]; } i += 2; });
+    [n.bpL, n.bpR, n.auL, n.auR, n.gbL, n.gbR, n.hbL, n.hbR, n.hhL, n.hhR].forEach(function (o, b) { if (o) o.visible = !!(f & (1 << b)); });
+    R.air = !!(f & 1024);
+    if (typeof q[41] === 'number') {
+      var k = Math.max(0, Math.min(1, (q[41] - 0.16) / 0.62));
+      for (var gi = 0; gi < 4; gi++) { var t = HEAT[gi], m = R.gm[gi]; m.color.setRGB(Lf(t[0], t[1], k), Lf(t[2], t[3], k), Lf(t[4], t[5], k)); m.emissive.setRGB(Lf(t[6], t[7], k), Lf(t[8], t[9], k), Lf(t[10], t[11], k)); }
+    }
+  }
+  var _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3();
+  function drawSeg(mesh, a, b) { mesh.visible = true; mesh.position.copy(a).lerp(b, 0.5); mesh.scale.set(1, 1, Math.max(0.01, a.distanceTo(b))); mesh.lookAt(b); }
+  function updateRemoteExtras(R) {   // grapple wires + claws + hand hoses, drawn from the remote rig's own devices
+    var n = R.n, on = !!R.gr && R.g.visible, g = R.gr;
+    for (var s = 0; s < 2; s++) {
+      var tip = s ? n.tpR : n.tpL;
+      if (on && tip) {
+        tip.getWorldPosition(_ra);
+        var o = 1 + s * 3;
+        _rc.set(g[o], g[o + 1], g[o + 2]);
+        _rb.copy(_ra).lerp(_rc, g[0]);
+        drawSeg(R.wire[s], _ra, _rb);
+        R.claw[s].visible = true; R.claw[s].position.copy(_rb); R.claw[s].lookAt(_rb.x + g[7], _rb.y + g[8], _rb.z + g[9]);
+      } else { R.wire[s].visible = false; R.claw[s].visible = false; }
+      var hp = s ? n.hpR : n.hpL, tv = s ? n.tvR : n.tvL;
+      if (R.air && R.g.visible && hp && tv) { hp.getWorldPosition(_ra); tv.getWorldPosition(_rb); drawSeg(R.hose[s], _ra, _rb); } else R.hose[s].visible = false;
+    }
+  }
+  function applyRemoteLook(R, c) {
+    if (!c || c.join() === R.look) return; R.look = c.join();
+    R.bm.color.set(c[0]); R.em.color.set(c[1]);
+    if (R.n.hat) { while (R.n.hat.children.length) R.n.hat.remove(R.n.hat.children[0]); R.n.hat.add(buildHatMesh(c[2])); }
   }
   function netFeed(t) {
     var d = document.createElement('div'); d.textContent = t; $m('feed').appendChild(d);
@@ -3380,7 +3468,7 @@ body {
         setInterval(function () {
           if (!NET.on) return;
           var f2 = function (v) { return Math.round(v * 100) / 100; };
-          send({ t: 'p', x: f2(pos.x), y: f2(pos.y), z: f2(pos.z), yaw: f2(faceYaw), w: weapon.mode });
+          send({ t: 'p', x: f2(pos.x), y: f2(pos.y), z: f2(pos.z), yaw: f2(faceYaw), c: [custState.bodyColor, custState.eyeColor, custState.hat], q: getPose(), g: getGrapple() });
         }, 50);
         (function loop() {
           requestAnimationFrame(loop);
@@ -3388,7 +3476,7 @@ body {
             var R = NET.rem[id]; if (!R.init) continue;
             R.g.position.x += (R.tx - R.g.position.x) * 0.3; R.g.position.y += (R.ty - R.g.position.y) * 0.3; R.g.position.z += (R.tz - R.g.position.z) * 0.3;
             var dy = (R.yaw || 0) - R.g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); R.g.rotation.y += dy * 0.3;
-            R.g.visible = R.hp > 0; R.blades[0].visible = R.blades[1].visible = !!R.bl;
+            R.g.visible = R.hp > 0; updateRemoteExtras(R);
             drawLabel(R.lab, R.name, R.hp);
           }
         })();
@@ -3397,10 +3485,10 @@ body {
       } else if (m.t === 'p') {
         var R = NET.rem[m.id] || (NET.rem[m.id] = makeRemote(m.id));
         R.tx = m.x; R.ty = m.y; R.tz = m.z; R.yaw = m.yaw || 0; R.hp = typeof m.hp === 'number' ? m.hp : 100;
-        R.name = String(m.n || '玩家').slice(0, 10); R.bl = m.w !== 'airgun';
+        R.name = String(m.n || '玩家').slice(0, 10); applyRemoteLook(R, m.c); R.gr = m.g || null; applyPose(R, m.q);
         if (!R.init) { R.init = true; R.g.position.set(R.tx, R.ty, R.tz); }
       } else if (m.t === 'left') {
-        if (NET.rem[m.id]) { scene.remove(NET.rem[m.id].g); delete NET.rem[m.id]; }
+        removeRemote(m.id);
       } else if (m.t === 'hp') {
         var old = NET.hp; NET.hp = m.hp; netHud();
         if (m.hp < old) {

@@ -42,7 +42,10 @@ wss.on('connection', (ws) => {
     if (m.t === 'p') {
       if (![m.x, m.y, m.z, m.yaw].every(Number.isFinite)) return;
       c.x = m.x; c.y = m.y; c.z = m.z;
-      broadcast(c.room, { t: 'p', id: c.id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, w: m.w === 'airgun' ? 'airgun' : 'blades', n: c.name, hp: c.hp }, c);
+      const q = Array.isArray(m.q) && m.q.length <= 64 && m.q.every(Number.isFinite) ? m.q : null;
+      const cu = Array.isArray(m.c) && m.c.length === 3 && /^#[0-9a-fA-F]{6}$/.test(m.c[0]) && /^#[0-9a-fA-F]{6}$/.test(m.c[1]) && /^[a-z]{1,12}$/.test(m.c[2]) ? m.c : null;
+      const gr = Array.isArray(m.g) && m.g.length === 10 && m.g.every(Number.isFinite) ? m.g : null;
+      broadcast(c.room, { t: 'p', id: c.id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, n: c.name, hp: c.hp, q, c: cu, g: gr }, c);
     } else if (m.t === 'hit') {
       // server-authoritative damage: blade 80 (close range, 0.5s cooldown), bullet 10 (50ms cooldown)
       const dmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
