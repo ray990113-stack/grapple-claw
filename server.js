@@ -50,11 +50,11 @@ wss.on('connection', (ws) => {
     if (!c.room) return;
     if (m.t === 'p') {
       if (![m.x, m.y, m.z, m.yaw].every(Number.isFinite)) return;
-      c.x = m.x; c.y = m.y; c.z = m.z;
+      c.x = m.x; c.y = m.y; c.z = m.z; c.iv = !!m.iv;
       const q = Array.isArray(m.q) && m.q.length <= 64 && m.q.every(Number.isFinite) ? m.q : null;
       const cu = Array.isArray(m.c) && m.c.length === 3 && /^#[0-9a-fA-F]{6}$/.test(m.c[0]) && /^#[0-9a-fA-F]{6}$/.test(m.c[1]) && /^[a-z]{1,12}$/.test(m.c[2]) ? m.c : null;
       const gr = Array.isArray(m.g) && m.g.length === 10 && m.g.every(Number.isFinite) ? m.g : null;
-      broadcast(c.room, { t: 'p', id: c.id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, n: c.name, hp: c.hp, q, c: cu, g: gr }, c);
+      broadcast(c.room, { t: 'p', id: c.id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, n: c.name, hp: c.hp, q, c: cu, g: gr, iv: c.iv ? 1 : 0 }, c);
     } else if (m.t === 'fx') {
       const now = Date.now();
       if (now - (c.lastFx || 0) < 30) return;
@@ -82,7 +82,7 @@ wss.on('connection', (ws) => {
       if (!dmg || c.dead) return;
       let target = null;
       for (const o of c.room) if (o.id === m.to) target = o;
-      if (!target || target === c || target.dead) return;
+      if (!target || target === c || target.dead || target.iv) return;   // dodging (invulnerable) targets can't be hit
       const now = Date.now();
       const dist = Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z);
       if (dmg === 80) { if (now - c.last80 < 500 || dist > 9) return; c.last80 = now; }
