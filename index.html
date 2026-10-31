@@ -442,6 +442,34 @@ body {
   background: linear-gradient(90deg, #f59e0b, #fde047);
   transition: width 0.08s linear;
 }
+.bar-fill-shadow {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38bdf8, #6366f1);
+  transition: width 0.06s linear;
+}
+.bar-fill-shadow.over { background: linear-gradient(90deg, #2563eb, #ef4444); }
+#glitchFx {
+  position: fixed; inset: 0; z-index: 48; pointer-events: none; display: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(37,99,235,0.16) 0 2px, rgba(0,0,0,0) 2px 5px),
+    radial-gradient(ellipse at center, rgba(56,120,255,0.10) 30%, rgba(30,64,175,0.38) 100%);
+  mix-blend-mode: screen;
+  animation: glitchShift 0.28s steps(2, end) infinite;
+}
+#glitchFx.on { display: block; }
+#glitchFx::before, #glitchFx::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 18%;
+  background: rgba(96,165,250,0.28);
+  animation: glitchBar 0.9s steps(6, end) infinite;
+}
+#glitchFx::after { height: 7%; background: rgba(239,68,68,0.22); animation-duration: 0.6s; animation-delay: -0.3s; }
+@keyframes glitchShift {
+  0% { transform: translate(0,0); filter: hue-rotate(0deg); }
+  50% { transform: translate(-6px,2px); filter: hue-rotate(12deg); }
+  100% { transform: translate(5px,-2px); filter: hue-rotate(-10deg); }
+}
+@keyframes glitchBar { 0% { top: 8%; } 33% { top: 61%; } 66% { top: 27%; } 100% { top: 86%; } }
 .bar-fill-gas {
   height: 100%;
   width: 100%;
@@ -591,6 +619,24 @@ body {
               <span id="rlandingJet" style="color:#34d399;">落地噴氣 (R)：開啟</span>
               <span id="rrollHud">翻滾：就緒</span>
             </div>
+            <div class="res-sub" style="margin-top:3px;">
+              <span id="rdodgeMode" style="color:#9db0bf;">閃身模式 (Z)：關閉</span>
+              <span></span>
+            </div>
+          </div>
+
+          <div class="res-block" id="shadowBlock" style="display:none;">
+            <div class="res-head">
+              <span class="res-title">閃影值</span>
+              <span class="res-val" id="rshadowVal">0 / 100</span>
+            </div>
+            <div class="bar-track" title="閃身時累積，隨時間減少；累滿後動作與冷卻放緩 3 倍">
+              <div class="bar-fill-shadow" id="shadowBar"></div>
+            </div>
+            <div class="res-sub">
+              <span id="rshadowSub">累積中</span>
+              <span></span>
+            </div>
           </div>
         </div>
       </div>
@@ -624,6 +670,7 @@ body {
         <button id="swapBtn" class="touch-btn" type="button" aria-label="換刃：先丟棄受損刀片，再填裝">換刃</button>
         <button id="grappleBtn" class="touch-btn" type="button" aria-label="發射鋼絲鉤爪">鉤爪</button>
         <button id="dashBtn" class="touch-btn" type="button" aria-label="衝刺">衝刺</button>
+        <button id="dodgeTouchBtn" class="touch-btn" type="button" aria-label="閃身（依搖桿方向）">閃身</button>
         <button id="jump" class="touch-btn" type="button" aria-label="跳躍與空中翻滾">跳</button>
       </div>
     </div>
@@ -652,15 +699,15 @@ body {
         · <strong>瓦斯容量</strong>：上限 <code>1000</code>，發射鉤爪、空中飛行、推進與高空落地緩衝皆會消耗，隨時間自動補充。
       </div>
       <div class="manual-card">
-        <strong>🤸 空中翻滾（Space）、閃身（連點 WASD）與反向後撤（X）</strong><br>
+        <strong>🤸 空中翻滾（Space）、閃身（Z）與反向後撤（X）</strong><br>
         · <strong>空中翻滾</strong>：在空中按 <kbd>Space</kbd>（長按可持續翻滾），只有鉤索拉扯時翻滾才會使軌跡往上偏移。<br>
-        · <strong>閃身</strong>：地面<strong>連點兩下</strong> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 往該按鍵方向快速閃避，帶半透明殘影，閃身瞬間不會被擊中（冷卻 <code>1 秒</code>）。<br>
+        · <strong>閃身</strong>：按 <kbd>Z</kbd> 開／關<strong>閃身模式</strong>；開啟後在地面按 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 會朝該方向快速閃避，帶半透明殘影，閃身瞬間無敵（冷卻 <code>1 秒</code>）。每次閃身會累積<strong>閃影值</strong>（累積時才顯示，隨時間減少）；<strong>累滿後</strong>角色所有動作速度與冷卻都會<strong>放緩 3 倍</strong>，並出現藍色殘影錯誤特效，直到閃影值歸零。<br>
         · <strong>鉤人</strong>：鉤索可鉤住其他玩家，被鉤者會被拉向你；你在空中時會飛向對方，鉤住時持續消耗瓦斯。被鉤時連點 <kbd>Space</kbd> 填滿掙扎條即可脫離。<br>
         · <strong>反向噴氣後撤</strong>：按 <kbd>X</kbd> 瞬間往鏡頭後方噴射彈開並切斷鉤索，消耗 <code>140</code> 瓦斯，冷卻 <code>0.9</code> 秒。
       </div>
       <div class="manual-card">
         <strong>🏃 移動與視角控制</strong><br>
-        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍／空中翻滾 · 連點 <kbd>WASD</kbd> 閃身 · <kbd>C</kbd> 外觀自訂 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍／空中翻滾 · <kbd>Z</kbd> 閃身模式（開啟後 WASD 閃身） · <kbd>C</kbd> 外觀自訂 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
       </div>
     </div>
 
@@ -676,6 +723,7 @@ body {
       <button id="landingJetBtn" class="hud-btn active" type="button">落地噴氣：開 (R)</button>
       <button id="toggleCustBtn" class="hud-btn" type="button">外觀自訂 (C)</button>
       <button id="resetPosBtn" class="hud-btn" type="button">回起點廣場</button>
+      <button id="dodgeModeBtn" class="hud-btn" type="button">閃身模式：關 (Z)</button>
       <button id="muteBtn" class="hud-btn" type="button">音效：開</button>
     </div>
 
@@ -730,7 +778,7 @@ body {
 <div id="mOpts" style="display:none;flex-direction:column;gap:10px;width:100%"><button class="mbtn" id="mSolo">單機練習</button><button class="mbtn" id="mPub">公用房間</button><button class="mbtn" id="mPri">私人房間</button></div>
 <div id="mPriBox" style="display:none;flex-direction:column;gap:10px;width:100%"><input id="mCode" maxlength="8" placeholder="房間代碼" autocomplete="off"><button class="mbtn" id="mJoin">加入 / 建立</button><button class="mbtn" id="mRand">隨機代碼建立</button><button class="mbtn" id="mBack2">返回</button></div>
 <div id="menuMsg"></div></div></div>
-<div id="netHud"><div id="netInfo"></div><div id="hpBar"><div id="hpFill"></div></div><div id="netScore"></div></div><div id="feed"></div><div id="hurt"></div>
+<div id="netHud"><div id="netInfo"></div><div id="hpBar"><div id="hpFill"></div></div><div id="netScore"></div></div><div id="feed"></div><div id="hurt"></div><div id="glitchFx"></div>
 <div id="struggle" style="display:none"><div id="stText">被鉤住了！連點空白鍵掙脫</div><div id="stBar"><div id="stFill"></div></div></div>
 <button class="mbtn" id="menuBtn" onclick="window.__leave=1;location.reload()">返回選單</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1158,7 +1206,7 @@ body {
 
   var NPC_PROFILES = [
     { name: '嚮導阿哲', color: 0x10b981, hat: 'visor', line: '橘色門框的大樓都能走進去！爬上頂樓能看清整座迷宮的走向喔。' },
-    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '空中按 Space 翻滾，地面連點兩下 WASD 可以閃身躲避～' },
+    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '空中按 Space 翻滾，按 Z 開啟閃身模式後，地面按 WASD 就能閃身躲避（小心閃影值累滿會變慢！）～' },
     { name: '機動教官', color: 0xf59e0b, hat: 'crown', line: '每次發射鉤索會消耗 50 瓦斯，高空落地緩衝噴氣則可以按 R 隨時切換開關！' },
     { name: '機械波波', color: 0x8b5cf6, hat: 'antenna', line: '按 C 鍵打開外觀自訂，幫你的方塊小人換上皇冠或霓虹尾跡！' },
     { name: '探險家老K', color: 0xef4444, hat: 'tophat', line: '現在可進入的大樓空間更寬敞、窗戶也加大了，可以直接用鉤索從窗戶飛進飛出喔！' }
@@ -2410,6 +2458,18 @@ body {
     return Math.hypot(px - cx, py - cy, pz - cz);
   }
 
+  // Forgiving melee test: anything standing in front of the swing within reach counts, regardless of aim pitch
+  // (so an enemy right in front of you can be hit without looking down at them).
+  var BLADE_FRONT_REACH = 5.4, BLADE_FRONT_COS = 0.25;
+  function bladeFrontTest(tx, ty, tz) {
+    var fY = firstPerson ? (yaw + Math.PI) : faceYaw;
+    var dx = tx - pos.x, dz = tz - pos.z, d = Math.hypot(dx, dz);
+    if (d > BLADE_FRONT_REACH) return false;
+    if (ty + 1.9 < pos.y - 1.6 || ty > pos.y + 3.6) return false;
+    if (d > 1.3 && (dx * Math.sin(fY) + dz * Math.cos(fY)) / d < BLADE_FRONT_COS) return false;
+    if (d > 1.0 && raycastBuildings(pos.x, pos.y + 1.4, pos.z, dx / d, 0, dz / d, 0.02, d - 0.6)) return false;   // not through walls
+    return true;
+  }
   function checkSingleBladeSegmentHit(bladeObj) {
     var basePos = new THREE.Vector3(), tipPos = new THREE.Vector3();
     bladeObj.baseRef.getWorldPosition(basePos);
@@ -2435,7 +2495,7 @@ body {
       var midY = (ay + by) * 0.5;
       var testY = Math.max(npc.y + 0.15, Math.min(npc.y + 1.85, midY));
       var dNpc = distPointToBladeSegment(npc.x, testY, npc.z, ax, ay, az, wbx, wby, wbz);
-      if (dNpc <= BLADE_HIT_R) {
+      if (dNpc <= BLADE_HIT_R || bladeFrontTest(npc.x, npc.y, npc.z)) {
         hitAny = true;
         var dxN = npc.x - pos.x, dzN = npc.z - pos.z;
         var distN = Math.hypot(dxN, dzN) || 1;
@@ -2706,14 +2766,11 @@ body {
     if (e.code === 'KeyC' && !e.repeat) { setManualOpen(true); toggleCustomPanel(true); }
     if (e.code === 'KeyR' && !e.repeat) { toggleLandingJet(); }
     var isWasdK = e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD';
-    if (isWasdK && !e.repeat) {   // double-tap a WASD key (within 0.28s) = dodge toward that key's direction
-      var tapNow = performance.now();
-      if (tapNow - (lastTapT[e.code] || 0) < 280) {
-        dodgeDirF = e.code === 'KeyW' ? 1 : (e.code === 'KeyS' ? -1 : 0);
-        dodgeDirR = e.code === 'KeyD' ? 1 : (e.code === 'KeyA' ? -1 : 0);
-        dodgeWait = 0.001;
-        lastTapT[e.code] = 0;
-      } else lastTapT[e.code] = tapNow;
+    if (e.code === 'KeyZ' && !e.repeat) { toggleDodgeMode(); }
+    if (isWasdK && !e.repeat && dodgeMode) {   // dodge mode: any WASD press dodges toward that key's direction
+      dodgeDirF = e.code === 'KeyW' ? 1 : (e.code === 'KeyS' ? -1 : 0);
+      dodgeDirR = e.code === 'KeyD' ? 1 : (e.code === 'KeyA' ? -1 : 0);
+      dodgeWait = 0.001;
     }
     if (e.code === 'KeyM' && !e.repeat) { muteBtn.click(); }
     keys[e.code] = true;
@@ -2750,6 +2807,52 @@ body {
   }
   if (landingJetBtn) {
     landingJetBtn.addEventListener('click', function () { toggleLandingJet(); });
+  }
+
+  /* ---------- Dodge mode (Z) + shadow gauge (閃影值) ---------- */
+  var dodgeMode = false;
+  var SHADOW_ADD = 34, SHADOW_DECAY = 9, SHADOW_IDLE = 1.0, SHADOW_OVER_DRAIN = 20, SLOW_FACTOR = 3;
+  var shadow = { v: 0, idle: 0, over: false, ghostT: 0 };
+  var dodgeModeBtn = document.getElementById('dodgeModeBtn');
+  var elDodgeMode = document.getElementById('rdodgeMode');
+  var glitchFxEl = document.getElementById('glitchFx');
+  function updateDodgeUI() {
+    if (dodgeModeBtn) { dodgeModeBtn.textContent = '閃身模式：' + (dodgeMode ? '開' : '關') + ' (Z)'; dodgeModeBtn.classList.toggle('active', dodgeMode); }
+    if (elDodgeMode) { elDodgeMode.textContent = '閃身模式 (Z)：' + (dodgeMode ? '開啟' : '關閉'); elDodgeMode.style.color = dodgeMode ? '#7dd3fc' : '#9db0bf'; }
+  }
+  function toggleDodgeMode() {
+    dodgeMode = !dodgeMode;
+    updateDodgeUI();
+    playTone(dodgeMode ? 480 : 330, dodgeMode ? 900 : 200, 0.1, 'triangle', 0.11);
+    swapHint('閃身模式：' + (dodgeMode ? '開啟 (WASD 閃身)' : '關閉'), dodgeMode ? '#7dd3fc' : '#fca5a5');
+  }
+  if (dodgeModeBtn) dodgeModeBtn.addEventListener('click', toggleDodgeMode);
+  var dodgeTouchBtn = document.getElementById('dodgeTouchBtn');
+  if (dodgeTouchBtn) dodgeTouchBtn.addEventListener('pointerdown', function (e) {
+    e.preventDefault(); ensureAudio();
+    var tf = -jy, tr = jx;
+    if (Math.hypot(tf, tr) < 0.3) { tf = -1; tr = 0; }
+    dodgeDirF = tf; dodgeDirR = tr; dodgeWait = 0.001;
+  });
+  function shadowAdd() {
+    shadow.v = Math.min(100, shadow.v + SHADOW_ADD);
+    shadow.idle = SHADOW_IDLE;
+    if (shadow.v >= 100 && !shadow.over) {
+      shadow.over = true; shadow.ghostT = 0;
+      playTone(300, 70, 0.5, 'sawtooth', 0.13);
+      setTimeout(function () { playTone(1500, 200, 0.2, 'square', 0.08); }, 80);
+      swapHint('⚠️ 閃影過載！動作與冷卻放緩 3 倍', '#93c5fd');
+    }
+  }
+  function updateShadow(rdt) {
+    if (shadow.over) {
+      shadow.v = Math.max(0, shadow.v - SHADOW_OVER_DRAIN * rdt);
+      if (shadow.v <= 0) { shadow.over = false; shadow.idle = 0; playTone(520, 940, 0.12, 'triangle', 0.1); swapHint('閃影恢復', '#34d399'); }
+    } else if (shadow.v > 0) {
+      shadow.idle -= rdt;
+      if (shadow.idle <= 0) shadow.v = Math.max(0, shadow.v - SHADOW_DECAY * rdt);
+    }
+    glitchFxEl.classList.toggle('on', shadow.over);
   }
 
   var grapple = {
@@ -3055,7 +3158,7 @@ body {
   var fallPeakY = 0;
   var preLandingBurstUsed = false;
   var ROLL_T = 0.52, ROLL_CY = 1.05, ROLL_CD = 1.0;   // air roll: duration, pivot height, and 1.0s cooldown
-  var flipTimer = 0, rollCd = 0, rollDashT = 0, rdx = 0, rdz = 0, dodgeWait = 0, dodgeDirF = 0, dodgeDirR = 0, lastTapT = {}, ghostT = 0, spaceNeedsRelease = false;                      // forward roll in the air & cooldown timer
+  var flipTimer = 0, rollCd = 0, rollDashT = 0, rdx = 0, rdz = 0, dodgeWait = 0, dodgeDirF = 0, dodgeDirR = 0, ghostT = 0, spaceNeedsRelease = false;                      // forward roll in the air & cooldown timer
   var dashTimer = 0;
   var faceYaw = 0, phase = 0, airT = 0;
   var camFocus = new THREE.Vector3(0, 1.5, 0);
@@ -3462,7 +3565,7 @@ body {
     for (var id in NET.rem) {
       var R = NET.rem[id]; if (!R.init || R.hp <= 0 || R.iv) continue;   // dodging players can't be hit
       var ty = Math.max(R.g.position.y + 0.15, Math.min(R.g.position.y + 1.85, (ay + by) * 0.5));
-      if (distPointToBladeSegment(R.g.position.x, ty, R.g.position.z, ax, ay, az, bx, by, bz) > rad) continue;
+      if (distPointToBladeSegment(R.g.position.x, ty, R.g.position.z, ax, ay, az, bx, by, bz) > rad && !(isBlade && bladeFrontTest(R.g.position.x, R.g.position.y, R.g.position.z))) continue;
       if (isBlade && NET.hitCd[id] && now - NET.hitCd[id] < 700) continue;   // one hit per swing
       if (isBlade) NET.hitCd[id] = now;
       R.hp = Math.max(0, R.hp - dmg);
@@ -3475,16 +3578,16 @@ body {
   }
   /* ---------- dodge afterimages (translucent clones of the rig) ---------- */
   var ghosts = [];
-  function makeGhost(src, x, y, z, yaw) {
+  function makeGhost(src, x, y, z, yaw, col, op) {
     var gw = new THREE.Group(); gw.position.set(x, y, z); gw.rotation.y = yaw;
-    var cl = src.clone(true), mat = new THREE.MeshBasicMaterial({ color: 0x9bd8ff, transparent: true, opacity: 0.45, depthWrite: false });
+    var cl = src.clone(true), mat = new THREE.MeshBasicMaterial({ color: col || 0x9bd8ff, transparent: true, opacity: op || 0.45, depthWrite: false });
     cl.traverse(function (o) { if (o.isMesh) { o.material = mat; o.castShadow = false; } else if (o.isLight) o.visible = false; });
-    gw.add(cl); scene.add(gw); ghosts.push({ g: gw, m: mat, t: 0 });
+    gw.add(cl); scene.add(gw); ghosts.push({ g: gw, m: mat, t: 0, op: op || 0.45 });
   }
   function updateGhosts(dt) {
     for (var i = ghosts.length - 1; i >= 0; i--) {
       var G = ghosts[i]; G.t += dt;
-      if (G.t >= 0.4) { scene.remove(G.g); G.m.dispose(); ghosts.splice(i, 1); } else G.m.opacity = 0.45 * (1 - G.t / 0.4);
+      if (G.t >= 0.4) { scene.remove(G.g); G.m.dispose(); ghosts.splice(i, 1); } else G.m.opacity = G.op * (1 - G.t / 0.4);
     }
   }
   function spawnDodgeGhost() {
@@ -3656,6 +3759,9 @@ body {
     requestAnimationFrame(frame);
     var dt = Math.min((now - last) / 1000, 0.05);
     last = now;
+    var realDt = dt;
+    updateShadow(realDt);
+    if (shadow.over) dt = realDt / SLOW_FACTOR;   // shadow overload: all of the character's actions & cooldowns run 3x slower
 
     // Stream infinite maze cells when crossing a 16m cell boundary
     var pgx = Math.round(pos.x / CELL), pgz = Math.round(pos.z / CELL);
@@ -3745,7 +3851,8 @@ body {
       dodgeWait -= dt;
       if (dodgeWait <= 0) {
         dodgeWait = 0;
-        if (grounded && rollCd <= 0 && rollDashT <= 0 && flipTimer <= 0 && !manualOpen) {
+        if (grounded && rollCd <= 0 && rollDashT <= 0 && flipTimer <= 0 && !manualOpen && !shadow.over) {
+          shadowAdd();
           var dfI = dodgeDirF, drI = dodgeDirR;
           var ddx = -Math.sin(yaw) * dfI + Math.cos(yaw) * drI, ddz = -Math.cos(yaw) * dfI - Math.sin(yaw) * drI, ddl = Math.hypot(ddx, ddz) || 1;
           rdx = ddx / ddl; rdz = ddz / ddl; rollDashT = 0.22; rollCd = ROLL_CD; ghostT = 0;
@@ -3758,7 +3865,14 @@ body {
       if (ghostT <= 0) { ghostT = 0.045; spawnDodgeGhost(); }
       spawnDashParticle(pos.x, pos.y + 0.2, pos.z, 0x9bd8ff);
     }
-    updateGhosts(dt);
+    if (shadow.over && !firstPerson) {   // blue glitch afterimages
+      shadow.ghostT -= realDt;
+      if (shadow.ghostT <= 0) {
+        shadow.ghostT = 0.12;
+        makeGhost(rig, pos.x + (Math.random() - 0.5) * 0.9, pos.y + (Math.random() - 0.3) * 0.25, pos.z + (Math.random() - 0.5) * 0.9, faceYaw + (Math.random() - 0.5) * 0.5, Math.random() < 0.25 ? 0xef4444 : 0x2f6bff, 0.5);
+      }
+    }
+    updateGhosts(realDt);
     NETFRAME(dt, spaceTap);   // hooked-by-player pull + struggle bar
     if (grapple.active && grapple.hookedId) {   // the hook follows the hooked player
       var HR = NET.rem[grapple.hookedId];
@@ -3951,6 +4065,7 @@ body {
       }
     }
 
+    var dtPlayer = dt; dt = realDt;   // world effects / NPCs / bullets keep real time
     // Update FX particles
     for (var fi = fxList.length - 1; fi >= 0; fi--) {
       var f = fxList[fi];
@@ -4061,6 +4176,7 @@ body {
       npcBanner.classList.remove('visible');
     }
 
+    dt = dtPlayer;
     // Update Steel Blade (右鍵交叉揮砍) timers & 10-second Blade Stock Replenishment (總共3雙刀刃 · 10秒補充1雙)
     if (weapon.hitStop > 0) { weapon.hitStop = Math.max(0, weapon.hitStop - dt); }
     else { weapon.slashTimer = Math.max(0, weapon.slashTimer - dt); }
@@ -4170,6 +4286,7 @@ body {
       fireAirGunShot();
     }
 
+    dt = realDt;
     // Update flying Air-Bullets (灰色氣彈套上煙霧)
     for (var abi = airBullets.length - 1; abi >= 0; abi--) {
       var ab = airBullets[abi];
@@ -4236,6 +4353,7 @@ body {
       }
     }
     NET.replay = false;
+    dt = dtPlayer;
 
     // Update center crosshair overheat arcs & jam badge
     if (weapon.mode === 'airgun' || weapon.heat > 0.1 || weapon.jamTimer > 0) {
@@ -4925,6 +5043,16 @@ body {
         elG.textContent = currentAimHit ? ('鉤爪：可勾住 (' + currentAimHit.dist.toFixed(0) + 'm)') : '鉤爪：未對準目標';
       }
       elL.textContent = locText();
+      var shBlock = document.getElementById('shadowBlock');
+      var shShow = shadow.v > 0.05;
+      if (shBlock.style.display !== (shShow ? 'block' : 'none')) shBlock.style.display = shShow ? 'block' : 'none';
+      if (shShow) {
+        document.getElementById('rshadowVal').textContent = Math.round(shadow.v) + ' / 100';
+        var shBar = document.getElementById('shadowBar');
+        shBar.style.width = shadow.v.toFixed(1) + '%';
+        shBar.classList.toggle('over', shadow.over);
+        document.getElementById('rshadowSub').textContent = shadow.over ? '⚠ 過載：動作/冷卻 ×3 慢' : (shadow.idle > 0 ? '累積中' : '消退中');
+      }
     }
   }
   requestAnimationFrame(frame);
