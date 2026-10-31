@@ -18,6 +18,15 @@ const rooms = new Map();            // roomName -> Set<client>
 let nextId = 1;
 const MAX_PER_ROOM = 16;
 
+function clearHooks(c) {
+  if (!c.room) return;
+  for (const o of c.room) {
+    if (c.hooking === o.id && o.hookedBy === c.id) { o.hookedBy = null; send(o, { t: 'freed' }); }
+    if (c.hookedBy === o.id && o.hooking === c.id) { o.hooking = null; send(o, { t: 'cut' }); }
+  }
+  c.hooking = null; c.hookedBy = null;
+}
+function findIn(room, id) { for (const o of room) if (o.id === id) return o; return null; }
 function send(c, o) { if (c.ws.readyState === 1) c.ws.send(JSON.stringify(o)); }
 function broadcast(room, o, except) { for (const c of room) if (c !== except) send(c, o); }
 
@@ -46,6 +55,27 @@ wss.on('connection', (ws) => {
       const cu = Array.isArray(m.c) && m.c.length === 3 && /^#[0-9a-fA-F]{6}$/.test(m.c[0]) && /^#[0-9a-fA-F]{6}$/.test(m.c[1]) && /^[a-z]{1,12}$/.test(m.c[2]) ? m.c : null;
       const gr = Array.isArray(m.g) && m.g.length === 10 && m.g.every(Number.isFinite) ? m.g : null;
       broadcast(c.room, { t: 'p', id: c.id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, n: c.name, hp: c.hp, q, c: cu, g: gr }, c);
+    } else if (m.t === 'fx') {
+      const now = Date.now();
+      if (now - (c.lastFx || 0) < 30) return;
+      if (!Array.isArray(m.e) || m.e.length > 40) return;
+      for (const e of m.e) if (!Array.isArray(e) || e.length > 8 || typeof e[0] !== 'string' || !e.slice(1).every(Number.isFinite)) return;
+      c.lastFx = now;
+      broadcast(c.room, { t: 'fx', id: c.id, e: m.e }, c);
+    } else if (m.t === 'hook') {
+      const target = findIn(c.room, m.to), now = Date.now();
+      const ok = target && target !== c && !c.dead && !target.dead && !c.hooking && !target.hookedBy && now > (target.immune || 0) && now - (c.lastHook || 0) > 400 && Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z) <= 140;
+      if (!ok) { send(c, { t: 'cut' }); return; }
+      c.hooking = target.id; target.hookedBy = c.id; c.lastHook = now;
+      send(target, { t: 'hooked', by: c.id });
+    } else if (m.t === 'unhook') {
+      if (c.hooking) { const t = findIn(c.room, c.hooking); if (t && t.hookedBy === c.id) { t.hookedBy = null; send(t, { t: 'freed' }); } c.hooking = null; }
+    } else if (m.t === 'escape') {
+      if (c.hookedBy) {
+        const hk = findIn(c.room, c.hookedBy);
+        c.hookedBy = null; c.immune = Date.now() + 2500;
+        if (hk && hk.hooking === c.id) { hk.hooking = null; send(hk, { t: 'cut' }); }
+      }
     } else if (m.t === 'hit') {
       // server-authoritative damage: blade 80 (close range, 0.5s cooldown), bullet 10 (50ms cooldown)
       const dmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
@@ -60,7 +90,7 @@ wss.on('connection', (ws) => {
       target.hp = Math.max(0, target.hp - dmg);
       send(target, { t: 'hp', hp: target.hp });
       if (target.hp <= 0) {
-        target.dead = true;
+        target.dead = true; clearHooks(target);
         broadcast(c.room, { t: 'kill', by: c.id, bn: c.name, to: target.id, n: target.name });
         send(c, { t: 'kill', by: c.id, bn: c.name, to: target.id, n: target.name });
         setTimeout(() => { target.hp = 100; target.dead = false; send(target, { t: 'hp', hp: 100 }); }, 1500);
@@ -69,6 +99,7 @@ wss.on('connection', (ws) => {
   });
   ws.on('close', () => {
     if (!c.room) return;
+    clearHooks(c);
     c.room.delete(c);
     if (c.room.size === 0) rooms.delete(c.roomName);
     else { broadcast(c.room, { t: 'left', id: c.id }); broadcast(c.room, { t: 'n', n: c.room.size }); }

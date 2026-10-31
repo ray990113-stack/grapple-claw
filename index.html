@@ -652,13 +652,14 @@ body {
         · <strong>瓦斯容量</strong>：上限 <code>1000</code>，發射鉤爪、空中飛行、推進與高空落地緩衝皆會消耗，隨時間自動補充。
       </div>
       <div class="manual-card">
-        <strong>🤸 空中翻滾（空中按 Space）與反向後撤（X）</strong><br>
-        · <strong>空中翻滾</strong>：在空中按 <kbd>Space</kbd> 可向前翻滾並<strong>使滑行／飛行軌跡往上偏移</strong>（冷卻 <code>1 秒</code>，第一人稱視角下鏡頭維持穩定不翻轉）。<br>
+        <strong>🤸 翻滾（C）與反向後撤（X）</strong><br>
+        · <strong>翻滾</strong>：地面點一下 <kbd>C</kbd> 向前翻滾一小段（冷卻 <code>1 秒</code>）；空中<strong>長按</strong> <kbd>C</kbd> 可持續翻滾，只有鉤索拉扯時翻滾才會使軌跡往上偏移。<br>
+        · <strong>鉤人</strong>：鉤索可鉤住其他玩家，被鉤者會被拉向你；你在空中時會飛向對方，鉤住時持續消耗瓦斯。被鉤時連點 <kbd>C</kbd> 填滿掙扎條即可脫離。<br>
         · <strong>反向噴氣後撤</strong>：按 <kbd>X</kbd> 瞬間往鏡頭後方噴射彈開並切斷鉤索，消耗 <code>140</code> 瓦斯，冷卻 <code>0.9</code> 秒。
       </div>
       <div class="manual-card">
         <strong>🏃 移動與視角控制</strong><br>
-        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍／空中翻滾 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍 · <kbd>C</kbd> 翻滾 · <kbd>B</kbd> 外觀自訂 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
       </div>
     </div>
 
@@ -672,7 +673,7 @@ body {
     <div class="btn-row">
       <button id="viewModeBtn" class="hud-btn" type="button">視角：第三人稱 (V)</button>
       <button id="landingJetBtn" class="hud-btn active" type="button">落地噴氣：開 (R)</button>
-      <button id="toggleCustBtn" class="hud-btn" type="button">外觀自訂 (C)</button>
+      <button id="toggleCustBtn" class="hud-btn" type="button">外觀自訂 (B)</button>
       <button id="resetPosBtn" class="hud-btn" type="button">回起點廣場</button>
       <button id="muteBtn" class="hud-btn" type="button">音效：開</button>
     </div>
@@ -718,6 +719,9 @@ body {
 #hpFill{height:100%;width:100%;background:linear-gradient(90deg,#ef4444,#34d399);transition:width .15s}
 #feed{position:fixed;right:12px;top:80px;z-index:50;display:flex;flex-direction:column;gap:3px;align-items:flex-end;pointer-events:none;font:600 13px var(--font-mono);color:#fff;text-shadow:0 1px 3px #000}
 #hurt{position:fixed;inset:0;z-index:49;pointer-events:none;box-shadow:inset 0 0 120px 30px rgba(220,38,38,.75);opacity:0;transition:opacity .35s}
+#struggle{position:fixed;left:50%;bottom:22%;transform:translateX(-50%);z-index:60;width:min(70vw,320px);text-align:center;pointer-events:none;font:700 15px var(--font-mono);color:#fff;text-shadow:0 1px 3px #000}
+#stBar{margin-top:6px;height:16px;border:2px solid #fff;border-radius:8px;background:#0009;overflow:hidden}
+#stFill{height:100%;width:0;background:linear-gradient(90deg,#f59e0b,#ef4444)}
 #menuBtn{position:fixed;left:10px;bottom:10px;z-index:50;display:none;padding:6px 12px;font-size:14px;width:auto}
 </style>
 <div id="menu"><div class="sky"></div><h1>鉤爪</h1><div class="sub">GRAPPLING CLAW</div>
@@ -726,6 +730,7 @@ body {
 <div id="mPriBox" style="display:none;flex-direction:column;gap:10px;width:100%"><input id="mCode" maxlength="8" placeholder="房間代碼" autocomplete="off"><button class="mbtn" id="mJoin">加入 / 建立</button><button class="mbtn" id="mRand">隨機代碼建立</button><button class="mbtn" id="mBack2">返回</button></div>
 <div id="menuMsg"></div></div></div>
 <div id="netHud"><div id="netInfo"></div><div id="hpBar"><div id="hpFill"></div></div><div id="netScore"></div></div><div id="feed"></div><div id="hurt"></div>
+<div id="struggle" style="display:none"><div id="stText">被鉤住了！連點 C 掙脫</div><div id="stBar"><div id="stFill"></div></div></div>
 <button class="mbtn" id="menuBtn" onclick="location.reload()">返回選單</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -1152,9 +1157,9 @@ body {
 
   var NPC_PROFILES = [
     { name: '嚮導阿哲', color: 0x10b981, hat: 'visor', line: '橘色門框的大樓都能走進去！爬上頂樓能看清整座迷宮的走向喔。' },
-    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '在空中按 Space 翻滾可以讓滑行軌跡往上抬升，冷卻只要 1 秒！' },
+    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '按 C 翻滾！地面點一下向前翻，空中長按可以連續翻滾～' },
     { name: '機動教官', color: 0xf59e0b, hat: 'crown', line: '每次發射鉤索會消耗 50 瓦斯，高空落地緩衝噴氣則可以按 R 隨時切換開關！' },
-    { name: '機械波波', color: 0x8b5cf6, hat: 'antenna', line: '按 C 鍵打開外觀自訂，幫你的方塊小人換上皇冠或霓虹尾跡！' },
+    { name: '機械波波', color: 0x8b5cf6, hat: 'antenna', line: '按 B 鍵打開外觀自訂，幫你的方塊小人換上皇冠或霓虹尾跡！' },
     { name: '探險家老K', color: 0xef4444, hat: 'tophat', line: '現在可進入的大樓空間更寬敞、窗戶也加大了，可以直接用鉤索從窗戶飛進飛出喔！' }
   ];
 
@@ -2613,6 +2618,7 @@ body {
       smokeTick: 0
     });
 
+    NETSHOT(muzzlePos.x, muzzlePos.y, muzzlePos.z, bDir.x * bSpeed, bDir.y * bSpeed, bDir.z * bSpeed);
     // Muzzle smoke puff + pneumatic gunshot sound
     spawnHeatSmoke(muzzlePos.x, muzzlePos.y, muzzlePos.z);
     playTone(540 + Math.random() * 80, 140, 0.075, 'sawtooth', 0.10);
@@ -2692,7 +2698,7 @@ body {
     if (e.code === 'KeyQ' && !e.repeat) { discardBlades(); }
     if (e.code === 'KeyE' && !e.repeat) { beginRefill(); }
     if (e.code === 'KeyV' && !e.repeat) { setFirstPerson(!firstPerson); }
-    if (e.code === 'KeyC' && !e.repeat) { setManualOpen(true); toggleCustomPanel(true); }
+    if (e.code === 'KeyB' && !e.repeat) { setManualOpen(true); toggleCustomPanel(true); }
     if (e.code === 'KeyR' && !e.repeat) { toggleLandingJet(); }
     if (e.code === 'KeyM' && !e.repeat) { muteBtn.click(); }
     keys[e.code] = true;
@@ -2828,27 +2834,33 @@ body {
       aimDir.x, aimDir.y, aimDir.z,
       minD, MAX_GRAPPLE_DIST
     );
-    if (!hit) return false;
+    var bDist = hit ? camera.position.distanceTo(hit.point) : Infinity;
+    var ph = pickHookPlayer(camera.position, aimDir, MAX_GRAPPLE_DIST, bDist);   // can the hook catch another player first?
+    if (!hit && !ph) return false;
+    var hpt = ph ? ph.point : hit.point;
     // Consume 50 gas every time grapple hooks are fired
     gas = Math.max(0, gas - GRAPPLE_FIRE_GAS);
     grapple.active = true;
     grapple.shootProgress = 0;
     grapple.pullTime = 0;
-    grapple.target.copy(hit.point);
+    grapple.target.copy(hpt);
     grapple.rayDir.copy(aimDir);
+    grapple.hookedId = ph ? ph.id : null;
+    if (ph) NET.r.emit('hook', { to: ph.id });
     // Spread left & right hooks slightly horizontally for dual-waist cable look
     var sideX = -aimDir.z, sideZ = aimDir.x;
     var sLen = Math.hypot(sideX, sideZ) || 1;
     sideX = (sideX / sLen) * 0.28;
     sideZ = (sideZ / sLen) * 0.28;
-    grapple.anchorL.set(hit.point.x - sideX, hit.point.y, hit.point.z - sideZ);
-    grapple.anchorR.set(hit.point.x + sideX, hit.point.y, hit.point.z + sideZ);
+    grapple.anchorL.set(hpt.x - sideX, hpt.y, hpt.z - sideZ);
+    grapple.anchorR.set(hpt.x + sideX, hpt.y, hpt.z + sideZ);
     sfxGrapple();
-    spawnPickupBurst(hit.point.x, hit.point.y, hit.point.z, 0xf0913f);
+    spawnPickupBurst(hpt.x, hpt.y, hpt.z, ph ? 0xef4444 : 0xf0913f);
     return true;
   }
 
   function releaseGrapple() {
+    if (grapple.hookedId) { try { if (NET && NET.on) NET.r.emit('unhook', {}); } catch (e) {} grapple.hookedId = null; }
     // Do NOT add artificial upward/forward velocity on release (prevents mid-air grapple spam flying bug);
     // the player naturally retains whatever physical velocity they already built up during the pull.
     grapple.active = false;
@@ -3028,7 +3040,7 @@ body {
   var fallPeakY = 0;
   var preLandingBurstUsed = false;
   var ROLL_T = 0.52, ROLL_CY = 1.05, ROLL_CD = 1.0;   // air roll: duration, pivot height, and 1.0s cooldown
-  var flipTimer = 0, rollCd = 0;                      // forward roll in the air & cooldown timer
+  var flipTimer = 0, rollCd = 0, cPrevHeld = false, rollDashT = 0, rdx = 0, rdz = 0;                      // forward roll in the air & cooldown timer
   var dashTimer = 0;
   var faceYaw = 0, phase = 0, airT = 0;
   var camFocus = new THREE.Vector3(0, 1.5, 0);
@@ -3300,7 +3312,7 @@ body {
 
 
   /* ================= Menu + Online PvP (room capability) ================= */
-  var NET = { on:false, r:null, me:null, rem:{}, hp:100, kills:0, deaths:0, name:'玩家' + Math.floor(100 + Math.random() * 900), hitCd:{}, hpShown:100 };
+  var NET = { on:false, r:null, me:null, rem:{}, hp:100, kills:0, deaths:0, name:'玩家' + Math.floor(100 + Math.random() * 900), hitCd:{}, hpShown:100, fxq:[], replay:false, hookedBy:null, struggle:0 };
   var $m = function (id) { return document.getElementById(id); };
   function netMsg(t) { $m('menuMsg').textContent = t || ''; }
   function remColor(id) { var h = 0; for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return new THREE.Color().setHSL((h % 360) / 360, 0.65, 0.5); }
@@ -3446,6 +3458,78 @@ body {
     }
     return hit;
   }
+  /* ---------- hook-a-player + struggle ---------- */
+  var hookPull = { on: false, x: 0, y: 0, z: 0, s: 0 };
+  function pickHookPlayer(o, d, maxD, bDist) {
+    if (!NET.on || NET.hp <= 0) return null;
+    var best = null;
+    for (var id in NET.rem) {
+      var R = NET.rem[id]; if (!R.init || R.hp <= 0) continue;
+      var cx = R.g.position.x - o.x, cy = R.g.position.y + 1.1 - o.y, cz = R.g.position.z - o.z;
+      var t = cx * d.x + cy * d.y + cz * d.z;
+      if (t < 0.5 || t > maxD || t > bDist) continue;
+      var px = cx - d.x * t, py = cy - d.y * t, pz = cz - d.z * t;
+      if (px * px + py * py + pz * pz > 1.69) continue;
+      if (!best || t < best.t) best = { id: id, t: t, point: new THREE.Vector3(o.x + d.x * t, o.y + d.y * t, o.z + d.z * t) };
+    }
+    return best;
+  }
+  function netFreed() { NET.hookedBy = null; NET.struggle = 0; hookPull.on = false; $m('struggle').style.display = 'none'; }
+  function NETFRAME(dt, cTap) {
+    hookPull.on = false;
+    if (!NET.on || !NET.hookedBy) return;
+    var HB = NET.rem[NET.hookedBy];
+    if (!HB || !HB.init || HB.hp <= 0 || NET.hp <= 0) { netFreed(); return; }
+    var hx = HB.g.position.x - pos.x, hy = HB.g.position.y - pos.y, hz = HB.g.position.z - pos.z, hd = Math.hypot(hx, hy, hz) || 1;
+    if (hd > 2.4) { hookPull.on = true; hookPull.x = hx / hd; hookPull.y = hy / hd; hookPull.z = hz / hd; hookPull.s = 22 * Math.min(1, (hd - 2.4) / 3); }
+    if (cTap) NET.struggle += 13;
+    NET.struggle = Math.max(0, NET.struggle - 18 * dt);
+    $m('stFill').style.width = Math.min(100, NET.struggle) + '%';
+    if (NET.struggle >= 100) { NET.r.emit('escape', {}); netFreed(); swapHint('成功掙脫鉤索!', '#86efac'); }
+  }
+  /* ---------- effect sync: every spawned effect is replayed on all other screens ---------- */
+  var _r2 = function (v) { return Math.round(v * 100) / 100; };
+  var _cn = function (c) { return typeof c === 'string' ? new THREE.Color(c).getHex() : (c | 0); };
+  var _fxPush = function (e) { if (NET.on && !NET.replay && NET.fxq.length < 300) NET.fxq.push(e); };
+  spawnDashParticle = (function (o) { return function (x, y, z, c) { o(x, y, z, c); _fxPush(['d', _r2(x), _r2(y), _r2(z), _cn(c)]); }; })(spawnDashParticle);
+  spawnHeatSmoke = (function (o) { return function (x, y, z) { o(x, y, z); _fxPush(['s', _r2(x), _r2(y), _r2(z)]); }; })(spawnHeatSmoke);
+  spawnPickupBurst = (function (o) { return function (x, y, z, c) { o(x, y, z, c); _fxPush(['p', _r2(x), _r2(y), _r2(z), _cn(c)]); }; })(spawnPickupBurst);
+  spawnAirRollFX = (function (o) { return function (x, y, z) { o(x, y, z); _fxPush(['r', _r2(x), _r2(y), _r2(z)]); }; })(spawnAirRollFX);
+  spawnBrokenBladeFX = (function (o) { return function (w, d) { o(w, d); _fxPush(d ? ['b', _r2(w.x), _r2(w.y), _r2(w.z), _r2(d.x), _r2(d.y), _r2(d.z)] : ['b', _r2(w.x), _r2(w.y), _r2(w.z)]); }; })(spawnBrokenBladeFX);
+  spawnFlingBladeFX = (function (o) { return function (w, dx, dz) { o(w, dx, dz); _fxPush(['f', _r2(w.x), _r2(w.y), _r2(w.z), _r2(dx), _r2(dz)]); }; })(spawnFlingBladeFX);
+  function NETSHOT(x, y, z, vx, vy, vz) { _fxPush(['g', _r2(x), _r2(y), _r2(z), _r2(vx), _r2(vy), _r2(vz)]); }
+  function spawnCosmeticBullet(x, y, z, vx, vy, vz) {   // visual only: damage always comes from the shooter's own client
+    var grp = new THREE.Group(); grp.position.set(x, y, z);
+    var so = new THREE.Mesh(bulletSmokeOuterGeo, bulletSmokeOuterMat);
+    grp.add(new THREE.Mesh(bulletCoreGeo, bulletCoreMat)); grp.add(new THREE.Mesh(bulletSmokeInnerGeo, bulletSmokeInnerMat)); grp.add(so);
+    grp.lookAt(x + vx, y + vy, z + vz); bulletGroup.add(grp);
+    airBullets.push({ group: grp, smokeOut: so, x: x, y: y, z: z, vx: vx, vy: vy, vz: vz, life: 1.35, smokeTick: 0, cosm: true });
+  }
+  function netFlushFx(send) {
+    if (!NET.fxq.length) return;
+    var hi = [], lo = [];
+    NET.fxq.forEach(function (e) { (e[0] === 'd' || e[0] === 's' ? lo : hi).push(e); });
+    NET.fxq = [];
+    hi = hi.slice(0, 15);
+    send({ t: 'fx', e: hi.concat(lo.slice(0, 30 - hi.length)) });
+  }
+  function netReplayFx(list) {
+    if (!Array.isArray(list)) return;
+    NET.replay = true;
+    try {
+      list.slice(0, 40).forEach(function (e) {
+        var k = e[0], V = function (i) { return new THREE.Vector3(e[i], e[i + 1], e[i + 2]); };
+        if (k === 'd') spawnDashParticle(e[1], e[2], e[3], e[4]);
+        else if (k === 's') spawnHeatSmoke(e[1], e[2], e[3]);
+        else if (k === 'p') spawnPickupBurst(e[1], e[2], e[3], e[4]);
+        else if (k === 'r') spawnAirRollFX(e[1], e[2], e[3]);
+        else if (k === 'b') spawnBrokenBladeFX(V(1), e.length >= 7 ? V(4) : undefined);
+        else if (k === 'f') spawnFlingBladeFX(V(1), e[4], e[5]);
+        else if (k === 'g') spawnCosmeticBullet(e[1], e[2], e[3], e[4], e[5], e[6]);
+      });
+    } catch (err) {}
+    NET.replay = false;
+  }
   function netStart(roomName) {
     netMsg('連線中…');
     var ws, opened = false, ready = false;
@@ -3469,6 +3553,7 @@ body {
           if (!NET.on) return;
           var f2 = function (v) { return Math.round(v * 100) / 100; };
           send({ t: 'p', x: f2(pos.x), y: f2(pos.y), z: f2(pos.z), yaw: f2(faceYaw), c: [custState.bodyColor, custState.eyeColor, custState.hat], q: getPose(), g: getGrapple() });
+          netFlushFx(send);
         }, 50);
         (function loop() {
           requestAnimationFrame(loop);
@@ -3487,6 +3572,14 @@ body {
         R.tx = m.x; R.ty = m.y; R.tz = m.z; R.yaw = m.yaw || 0; R.hp = typeof m.hp === 'number' ? m.hp : 100;
         R.name = String(m.n || '玩家').slice(0, 10); applyRemoteLook(R, m.c); R.gr = m.g || null; applyPose(R, m.q);
         if (!R.init) { R.init = true; R.g.position.set(R.tx, R.ty, R.tz); }
+      } else if (m.t === 'fx') {
+        netReplayFx(m.e);
+      } else if (m.t === 'hooked') {
+        NET.hookedBy = m.by; NET.struggle = 0; $m('struggle').style.display = 'block'; swapHint('被鉤住了! 連點 C 掙扎', '#fca5a5');
+      } else if (m.t === 'freed') {
+        netFreed();
+      } else if (m.t === 'cut') {
+        if (grapple.hookedId) releaseGrapple();
       } else if (m.t === 'left') {
         removeRemote(m.id);
       } else if (m.t === 'hp') {
@@ -3498,8 +3591,9 @@ body {
       } else if (m.t === 'kill') {
         netFeed((m.n || '玩家') + ' 被 ' + (m.by === NET.me ? '你' : (m.bn || '其他玩家')) + ' 擊倒');
         if (m.by === NET.me) { NET.kills++; netHud(); }
+        if (grapple.hookedId === m.to) releaseGrapple();
         if (m.to === NET.me) {
-          NET.deaths++; netHud();
+          NET.deaths++; netHud(); netFreed(); releaseGrapple();
           setTimeout(function () {
             pos.set((Math.random() - 0.5) * 6, 0.1, (Math.random() - 0.5) * 6);
             vel.x = 0; vel.z = 0; vy = 0; try { if (grapple.active) grapple.active = false; } catch (e) {}
@@ -3559,6 +3653,10 @@ body {
     var shiftHeld = (keys.ShiftLeft || keys.ShiftRight || touchDash) && !manualOpen;
     var isAirBoosting = !grounded && shiftHeld && gas > 0;
 
+    if (grapple.active && grapple.hookedId) {   // hooking a player: gas drains continuously
+      gas = Math.max(0, gas - 60 * dt);
+      if (gas <= 0) { releaseGrapple(); isPullingInAir = false; isGrappleBoosting = false; }
+    }
     if (isPullingInAir || isGrappleBoosting) {
       var gasBurn = (isGrappleBoosting ? 210 : 125) * dt;
       gas = Math.max(0, gas - gasBurn);
@@ -3570,7 +3668,7 @@ body {
     } else if (isAirBoosting) {
       gas = Math.max(0, gas - 140 * dt);
       if (gas <= 0) isAirBoosting = false;
-    } else {
+    } else if (!(grapple.active && grapple.hookedId)) {
       // 隨時間自行補充瓦斯 (容量 1000)
       var regenRate = grounded ? 115 : 65;
       gas = Math.min(MAX_GAS, gas + regenRate * dt);
@@ -3595,22 +3693,35 @@ body {
         vy = JUMP_V;
         grounded = false;
         sfxJump(false);
-      } else if (rollCd <= 0 && flipTimer <= 0) {
-        flipTimer = ROLL_T;
-        rollCd = ROLL_CD;
-        // Shift glide / flight trajectory upward!
-        var hGlide = Math.hypot(vel.x, vel.z);
-        vy = Math.max(vy + 8.5, 9.2 + Math.min(5.5, hGlide * 0.22));
-        if (hGlide < 6.0 && mag > 0.05) {
-          vel.x += wx * 3.5;
-          vel.z += wz * 3.5;
-        }
-        spawnAirRollFX(pos.x, pos.y, pos.z);
-        sfxJump(true);
       }
       jumpQueued = false;
     }
 
+    // Roll key = C. Ground tap: short forward roll (1.0s cooldown). Air hold: keep rolling (no extra height unless the grapple is pulling).
+    var cHeld = !!keys.KeyC && !manualOpen, cTap = cHeld && !cPrevHeld;
+    cPrevHeld = cHeld;
+    if (rollDashT > 0) rollDashT = Math.max(0, rollDashT - dt);
+    if (flipTimer <= 0) {
+      if (!grounded && cHeld) {
+        flipTimer = ROLL_T; spawnAirRollFX(pos.x, pos.y, pos.z); sfxJump(true);
+      } else if (grounded && cTap && rollCd <= 0) {
+        flipTimer = ROLL_T; rollCd = ROLL_CD; rollDashT = 0.4;
+        rdx = mag > 0.05 ? wx : -Math.sin(yaw); rdz = mag > 0.05 ? wz : -Math.cos(yaw);
+        faceYaw = Math.atan2(rdx, rdz);
+        spawnAirRollFX(pos.x, pos.y, pos.z); sfxJump(true);
+      }
+    }
+    NETFRAME(dt, cTap);   // hooked-by-player pull + struggle bar
+    if (grapple.active && grapple.hookedId) {   // the hook follows the hooked player
+      var HR = NET.rem[grapple.hookedId];
+      if (!NET.on || !HR || !HR.init || HR.hp <= 0 || Math.hypot(HR.g.position.x - pos.x, HR.g.position.z - pos.z) > MAX_GRAPPLE_DIST * 1.3) releaseGrapple();
+      else {
+        grapple.target.set(HR.g.position.x, HR.g.position.y + 1.1, HR.g.position.z);
+        var sdl = Math.hypot(grapple.rayDir.x, grapple.rayDir.z) || 1, ssx = -grapple.rayDir.z / sdl * 0.28, ssz = grapple.rayDir.x / sdl * 0.28;
+        grapple.anchorL.set(grapple.target.x - ssx, grapple.target.y, grapple.target.z - ssz);
+        grapple.anchorR.set(grapple.target.x + ssx, grapple.target.y, grapple.target.z + ssz);
+      }
+    }
     if (grapple.active) {
       grapple.shootProgress = Math.min(1, grapple.shootProgress + dt * 18);
     }
@@ -3655,6 +3766,11 @@ body {
     // Physics substeps
     var n = Math.max(1, Math.ceil(dt / (1 / 90))), h = dt / n;
     for (var si = 0; si < n; si++) {
+      if (hookPull.on) {   // pulled toward the player who hooked me
+        var hpa = Math.min(1, h * 14);
+        vel.x += (hookPull.x * hookPull.s - vel.x) * hpa; vel.z += (hookPull.z * hookPull.s - vel.z) * hpa;
+        if (hookPull.y > 0.15) vy += (hookPull.y * hookPull.s * 0.8 - vy) * hpa;
+      }
       // Only pull once the grapple claw has actually reached the target (shootProgress >= 1.0)
       if (grapple.active && !grounded && grapple.shootProgress >= 1.0) {
         grapple.pullTime += h;
@@ -3702,9 +3818,12 @@ body {
         }
       } else {
         if (grounded) {
-          var accG = Math.min(1, h * 13);
-          vel.x += (wx * speed - vel.x) * accG;
-          vel.z += (wz * speed - vel.z) * accG;
+          if (rollDashT > 0) { vel.x = rdx * 11.5; vel.z = rdz * 11.5; }
+          else {
+            var accG = Math.min(1, h * 13);
+            vel.x += (wx * speed - vel.x) * accG;
+            vel.z += (wz * speed - vel.z) * accG;
+          }
         } else {
           // Airborne boost: Shift strongly accelerates in the movement direction and preserves momentum.
           var curH = Math.hypot(vel.x, vel.z);
@@ -3739,7 +3858,7 @@ body {
         resolvePlayer();
 
         // Slightly lighter gravity during an active roll so the upward trajectory deflection carries cleanly
-        var effGrav = flipTimer > 0 ? GRAV * 0.55 : GRAV;
+        var effGrav = (flipTimer > 0 && grapple.active) ? GRAV * 0.55 : GRAV;
         vy = Math.max(-32, vy - effGrav * h);
         var oldY = pos.y;
         pos.y += vy * h;
@@ -4006,6 +4125,7 @@ body {
     // Update flying Air-Bullets (灰色氣彈套上煙霧)
     for (var abi = airBullets.length - 1; abi >= 0; abi--) {
       var ab = airBullets[abi];
+      NET.replay = !!ab.cosm;
       ab.life -= dt;
       if (ab.life <= 0) {
         bulletGroup.remove(ab.group);
@@ -4018,7 +4138,7 @@ body {
       var hitBullet = false;
 
       // Check NPC collision
-      for (var nbi = 0; nbi < activeNPCs.length; nbi++) {
+      for (var nbi = 0; nbi < (ab.cosm ? 0 : activeNPCs.length); nbi++) {
         var npcB = activeNPCs[nbi];
         var testYB = Math.max(npcB.y + 0.15, Math.min(npcB.y + 1.85, (ab.y + nyB) * 0.5));
         var dNpcB = distPointToBladeSegment(npcB.x, testYB, npcB.z, ab.x, ab.y, ab.z, nxB, nyB, nzB);
@@ -4041,7 +4161,7 @@ body {
         }
       }
 
-      if (!hitBullet && NETHIT(ab.x, ab.y, ab.z, nxB, nyB, nzB, 10, 0.62, 0)) hitBullet = true;   // PvP: bullet = 10 dmg
+      if (!hitBullet && !ab.cosm && NETHIT(ab.x, ab.y, ab.z, nxB, nyB, nzB, 10, 0.62, 0)) hitBullet = true;   // PvP: bullet = 10 dmg
       // Check building & ground collision
       if (!hitBullet) {
         var bHit = raycastBuildings(ab.x, ab.y, ab.z, stepX / stepLen, stepY / stepLen, stepZ / stepLen, 0.0, stepLen);
@@ -4067,6 +4187,7 @@ body {
         spawnHeatSmoke(ab.x, ab.y, ab.z);
       }
     }
+    NET.replay = false;
 
     // Update center crosshair overheat arcs & jam badge
     if (weapon.mode === 'airgun' || weapon.heat > 0.1 || weapon.jamTimer > 0) {
