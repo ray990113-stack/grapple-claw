@@ -2999,23 +2999,30 @@ body {
       lx = e.clientX; ly = e.clientY;
       if (cursorMode) return;
       if (stage.requestPointerLock) { try { stage.requestPointerLock(); } catch (_) {} }
-      if (e.button === 0) fireGrapple();
-      else if (e.button === 2) {
-        rightMouseDown = true;
-        if (weapon.mode === 'blades') triggerBladeAttack();
-      }
-      return;
+      return;   // mouse buttons are handled by mousedown / mouseup below (pointerdown does not fire for a 2nd button held at the same time)
     }
     if (dragId !== null) return;
     dragId = e.pointerId; lx = e.clientX; ly = e.clientY;
     stage.classList.add('dragging');
     try { stage.setPointerCapture(e.pointerId); } catch (_) {}
   });
-  window.addEventListener('pointerup', function (e) {
-    if (e.pointerType === 'mouse') {
-      if (e.button === 0) releaseGrapple();
-      else if (e.button === 2) rightMouseDown = false;
+  // Mouse buttons use mousedown/mouseup: while the left button is held (grapple), pressing the right button
+  // does NOT generate a pointerdown, which made it impossible to attack while hooked.
+  stage.addEventListener('mousedown', function (e) {
+    if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+    ensureAudio();
+    if (manualOpen || cursorMode) return;
+    if (e.target && e.target.closest && e.target.closest('.panel, #openManualBtn, #manualBackdrop, #touch, button')) return;
+    if (e.button === 0) fireGrapple();
+    else if (e.button === 2) {
+      rightMouseDown = true;
+      if (weapon.mode === 'blades') triggerBladeAttack();
     }
+  });
+  window.addEventListener('mouseup', function (e) {
+    if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+    if (e.button === 0) releaseGrapple();
+    else if (e.button === 2) rightMouseDown = false;
   });
   window.addEventListener('pointermove', function (e) {
     if (manualOpen) { lx = e.clientX; ly = e.clientY; return; }
