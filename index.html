@@ -638,6 +638,24 @@ body {
               <span></span>
             </div>
           </div>
+
+          <div class="res-block" id="enemyWaveBlock">
+            <div class="res-head">
+              <span class="res-title">✈️ 軍機空投 (每5分鐘)</span>
+              <span class="res-val" id="renemyWave">第 1 波 (2人)</span>
+            </div>
+            <div class="bar-track" title="每 5 分鐘 (300秒) 軍用運輸機於 200m 內隨機空投增援">
+              <div class="bar-fill-regen" id="enemyWaveBar" style="background:linear-gradient(90deg,#ef4444,#f97316);width:0%;"></div>
+            </div>
+            <div class="res-sub">
+              <span id="renemyCount">敵軍存活：0 人</span>
+              <span id="renemyTimer">下波 05:00</span>
+            </div>
+            <div class="res-sub" style="margin-top:3px;padding-top:3px;border-top:1px solid rgba(255,255,255,0.07);">
+              <span id="renemyAlert" style="color:#9db0bf;">視野30m：未暴露</span>
+              <span id="rplayerHp" style="color:#34d399;">HP 100/100</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -648,7 +666,7 @@ body {
         <canvas id="minimap" width="296" height="296" aria-label="即時迷宮小地圖"></canvas>
         <div class="cap"><span>北 ↑</span><span id="miniRange">雷達 ±88 m</span></div>
         <div class="legend">
-          <span><i class="dot" style="background:#34d399"></i>NPC</span>
+          <span><i class="dot" style="background:#ef4444"></i>敵軍NPC</span>
           <span><i class="dot" style="background:#f0913f"></i>可進大樓</span>
         </div>
       </div>
@@ -657,8 +675,8 @@ body {
 
   <div class="bottom">
     <div id="npcBanner" role="status" aria-live="polite">
-      <span id="npcTag">NPC</span>
-      <span id="npcText">嗨！橘色門框的大樓可以走進去爬上屋頂俯瞰整座迷宮喔！</span>
+      <span id="npcTag">敵情</span>
+      <span id="npcText">0級NPC敵人每5分鐘搭乘軍用運輸機空投降臨！</span>
     </div>
 
     <div id="touch">
@@ -706,6 +724,12 @@ body {
         · <strong>反向噴氣後撤</strong>：按 <kbd>X</kbd> 瞬間往鏡頭後方噴射彈開並切斷鉤索，消耗 <code>140</code> 瓦斯，冷卻 <code>0.9</code> 秒。
       </div>
       <div class="manual-card">
+        <strong>✈️ 0級NPC敵人與軍用運輸機空投</strong><br>
+        · <strong>軍機空投進攻</strong>：每 <code>5 分鐘</code> 搭乘軍用運輸機降臨在玩家平面半徑 <code>200 米</code> 隨機位置（初始 <code>2 人</code>，每次進攻新增 <code>1 人</code>）。<br>
+        · <strong>偵察與共享視野</strong>：玩家在平面半徑 <code>100 米</code> 外時敵軍會朝 100 米圈推進；進入 <code>100 米</code> 內後無法直接得知玩家位置。敵軍視野約 <code>30 米</code>（會被牆壁遮擋），看到玩家後持續記錄位置 <code>2 秒</code> 並與全體 NPC 同步；NPC 彼此皆知悉隊友座標，並會爬樓梯追擊與瞄準射擊。<br>
+        · <strong>0級NPC武器</strong>：<strong>警棍</strong>（向前揮擊造成 <code>1 秒</code> 螢幕晃動眩暈）＆<strong>防爆盾</strong>（正面擋子彈、耐久 <code>100 點</code>）、<strong>手槍</strong>（彈夾 <code>6 發</code>、換彈 <code>3 秒</code>）。
+      </div>
+      <div class="manual-card">
         <strong>🏃 移動與視角控制</strong><br>
         <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 · <kbd>Space</kbd> 跳躍／空中翻滾 · <kbd>Z</kbd> 閃身模式（開啟後 WASD 閃身） · <kbd>C</kbd> 外觀自訂 · <kbd>R</kbd> 開關高空落地噴氣 · <kbd>V</kbd> 切換第一／第三人稱 · <kbd>Alt</kbd> 切換游標模式。
       </div>
@@ -724,6 +748,7 @@ body {
       <button id="toggleCustBtn" class="hud-btn" type="button">外觀自訂 (C)</button>
       <button id="resetPosBtn" class="hud-btn" type="button">回起點廣場</button>
       <button id="dodgeModeBtn" class="hud-btn" type="button">閃身模式：關 (Z)</button>
+      <button id="spawnWaveBtn" class="hud-btn" type="button">✈️ 立即空投下一波</button>
       <button id="muteBtn" class="hud-btn" type="button">音效：開</button>
     </div>
 
@@ -1199,40 +1224,138 @@ body {
     return pivot;
   }
 
-  /* ---------- wandering NPCs ---------- */
-  var activeNPCs = [];     // { key, name, role, line, x, y, z, vx, vz, yaw, phase, group, legL, legR, armL, armR }
+  /* ---------- Level 0 Enemy NPCs (0級NPC敵人) & Military Transport Aircraft (運輸軍用飛機) ---------- */
+  var activeNPCs = [];          // Living 0級NPC enemies
   var npcGroup = new THREE.Group();
   scene.add(npcGroup);
 
-  var NPC_PROFILES = [
-    { name: '嚮導阿哲', color: 0x10b981, hat: 'visor', line: '橘色門框的大樓都能走進去！爬上頂樓能看清整座迷宮的走向喔。' },
-    { name: '跑酷小葵', color: 0xec4899, hat: 'ears', line: '空中按 Space 翻滾，按 Z 開啟閃身模式後，地面按 WASD 就能閃身躲避（小心閃影值累滿會變慢！）～' },
-    { name: '機動教官', color: 0xf59e0b, hat: 'crown', line: '每次發射鉤索會消耗 50 瓦斯，高空落地緩衝噴氣則可以按 R 隨時切換開關！' },
-    { name: '機械波波', color: 0x8b5cf6, hat: 'antenna', line: '按 C 鍵打開外觀自訂，幫你的方塊小人換上皇冠或霓虹尾跡！' },
-    { name: '探險家老K', color: 0xef4444, hat: 'tophat', line: '現在可進入的大樓空間更寬敞、窗戶也加大了，可以直接用鉤索從窗戶飛進飛出喔！' }
-  ];
+  var aircraftGroup = new THREE.Group();
+  scene.add(aircraftGroup);
+  var activePlanes = [];        // Flying military transport aircraft
 
-  function createNPCRig(bodyColor, hatType) {
+  var npcBullets = [];          // Pistol bullets fired by enemy NPCs
+  var npcBulletGroup = new THREE.Group();
+  scene.add(npcBulletGroup);
+  var npcBulletGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.46, 8);
+  npcBulletGeo.rotateX(Math.PI / 2);
+  var npcBulletMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+  var npcBulletGlowGeo = new THREE.SphereGeometry(0.11, 6, 6);
+  var npcBulletGlowMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.65 });
+
+  var WAVE_INTERVAL = 300.0;            // 每 5 分鐘 (300秒) 空投一波
+  var DROP_MAX_RADIUS = 200.0;          // 玩家平面半徑 200 米隨機位置
+  var OUTER_APPROACH_RADIUS = 100.0;    // 100 米外朝 100 米圈推進；100 米內無法直接得知玩家位置
+  var NPC_VISION_RANGE = 30.0;          // 視野距離約 30 米長，會被牆壁遮擋
+  var NPC_RECORD_DURATION = 2.0;        // 看到玩家後持續記錄玩家位置 2 秒，所有 NPC 同步知道
+  var PISTOL_MAG_SIZE = 6;              // 手槍彈夾大小 6 顆子彈
+  var PISTOL_RELOAD_TIME = 3.0;         // 換彈 3 秒
+  var SHIELD_MAX_HP = 100;              // 防爆盾正面擋子彈耐久 100 點
+  var BATON_STUN_TIME = 1.0;            // 警棍向前揮擊造成眩暈 (玩家螢幕晃動) 1 秒
+
+  var enemyWaveIndex = 0;
+  var waveCountdown = WAVE_INTERVAL;
+  var firstWaveTriggered = false;
+  var nextNpcId = 1;
+  var playerStunTimer = 0;              // 玩家受警棍擊中後的眩暈計時器 (螢幕晃動)
+  var soloPlayerHp = 100;               // 單機模式玩家血量
+
+  // 全體 NPC 共享情報與隊友座標網路
+  var enemyIntel = {
+    recordTimer: 0,                     // > 0 時持續記錄玩家位置並同步給所有 NPC
+    anyDirectSight: false,
+    knownPos: new THREE.Vector3(),
+    lastSeenPos: new THREE.Vector3(),
+    hasLastSeen: false,
+    squadCoords: []                     // 每個 NPC 皆可讀取所有隊友即時座標 { id, x, y, z, gx, gz }
+  };
+
+  function makeEnemyOverheadLabel() {
+    var cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 80;
+    var tex = new THREE.CanvasTexture(cv);
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sp.scale.set(2.5, 0.78, 1);
+    sp.position.y = 2.65;
+    sp.renderOrder = 11;
+    sp.userData = { cv: cv, tex: tex, key: '' };
+    return sp;
+  }
+
+  function updateEnemyOverheadLabel(npc) {
+    var sp = npc.labelSprite;
+    if (!sp) return;
+    var shHp = npc.hasShield ? Math.ceil(npc.shieldHp) : 0;
+    var wepStr = npc.reloadTimer > 0
+      ? ('換彈 ' + npc.reloadTimer.toFixed(1) + 's')
+      : (npc.activeWeapon === 'baton' ? '警棍+盾' : ('手槍 ' + npc.ammo + '/' + PISTOL_MAG_SIZE));
+    var stateTag = npc.airdrop ? '🪂空投中' : (npc.seesPlayer ? '👁️目擊!' : (enemyIntel.recordTimer > 0 ? '📡同步追蹤' : '巡邏搜索'));
+    var k = npc.name + '|' + Math.ceil(npc.hp) + '|' + shHp + '|' + wepStr + '|' + stateTag;
+    if (sp.userData.key === k) return;
+    sp.userData.key = k;
+    var c = sp.userData.cv.getContext('2d');
+    c.clearRect(0, 0, 256, 80);
+    c.font = '700 20px sans-serif';
+    c.textAlign = 'center';
+    c.strokeStyle = 'rgba(0,0,0,0.9)';
+    c.lineWidth = 4;
+    var title = npc.name + ' · ' + stateTag;
+    c.strokeText(title, 128, 20);
+    c.fillStyle = npc.seesPlayer ? '#f87171' : (enemyIntel.recordTimer > 0 ? '#fbbf24' : '#e2e8f0');
+    c.fillText(title, 128, 20);
+
+    // HP bar
+    c.fillStyle = 'rgba(0,0,0,0.65)';
+    c.fillRect(34, 28, 188, 11);
+    c.fillStyle = npc.hp > 40 ? '#ef4444' : '#f97316';
+    c.fillRect(36, 30, 184 * Math.max(0, npc.hp) / 100, 7);
+
+    // Shield bar (100 durability)
+    c.fillStyle = 'rgba(0,0,0,0.65)';
+    c.fillRect(34, 42, 188, 9);
+    if (shHp > 0) {
+      c.fillStyle = '#38bdf8';
+      c.fillRect(36, 44, 184 * Math.max(0, shHp) / SHIELD_MAX_HP, 5);
+    }
+
+    // Weapon & Shield text
+    c.font = '600 16px monospace';
+    var subTxt = wepStr + (shHp > 0 ? (' · 盾' + shHp) : ' · 盾破');
+    c.strokeText(subTxt, 128, 69);
+    c.fillStyle = '#93c5fd';
+    c.fillText(subTxt, 128, 69);
+    sp.userData.tex.needsUpdate = true;
+  }
+
+  function createEnemyNPCRig() {
     var g = new THREE.Group();
-    var bMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.65 });
-    var eMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.5 });
-    var bodyM = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.92, 0.92), bMat);
+    var armorMat = new THREE.MeshStandardMaterial({ color: 0x263240, roughness: 0.55, metalness: 0.25 });
+    var vestMat = new THREE.MeshStandardMaterial({ color: 0x161f29, roughness: 0.6, metalness: 0.3 });
+    var visorMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0x991b1b, roughness: 0.25 });
+
+    // Torso + tactical vest
+    var bodyM = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.92, 0.92), armorMat);
     bodyM.position.y = 1.32;
     bodyM.castShadow = true;
     g.add(bodyM);
 
-    [-0.2, 0.2].forEach(function (ex) {
-      var eye = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.22, 0.06), eMat);
-      eye.position.set(ex, 1.45, 0.47);
-      g.add(eye);
-    });
+    var vestM = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.62, 0.98), vestMat);
+    vestM.position.y = 1.24;
+    vestM.castShadow = true;
+    g.add(vestM);
 
-    var hGroup = buildHatMesh(hatType);
-    hGroup.position.set(0, 1.78, 0);
-    g.add(hGroup);
+    // Tactical crimson visor eyes
+    var visor = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.20, 0.08), visorMat);
+    visor.position.set(0, 1.48, 0.46);
+    g.add(visor);
+
+    // Tactical riot helmet
+    var helmet = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.28, 1.0), vestMat);
+    helmet.position.set(0, 1.82, 0);
+    helmet.castShadow = true;
+    g.add(helmet);
 
     function nLimb(x, y, w, h) {
-      var piv = buildJointedLimb(bMat, w, h, true);
+      var piv = buildJointedLimb(armorMat, w, h, true);
       piv.position.set(x, y, 0);
       g.add(piv);
       return piv;
@@ -1241,9 +1364,164 @@ body {
     var lR = nLimb(0.24, 0.85, 0.42, 0.85);
     var aL = nLimb(-0.7, 1.72, 0.42, 0.85);
     var aR = nLimb(0.7, 1.72, 0.42, 0.85);
-    return { group: g, legL: lL, legR: lR, armL: aL, armR: aR,
-             kneeL: lL.userData.joint, kneeR: lR.userData.joint,
-             elbowL: aL.userData.joint, elbowR: aR.userData.joint };
+    var kneeL = lL.userData.joint, kneeR = lR.userData.joint;
+    var elbowL = aL.userData.joint, elbowR = aR.userData.joint;
+
+    // Left forearm mount: 防爆盾 (Riot Shield — 正面可擋子彈，耐久 100 點)
+    var shieldGroup = new THREE.Group();
+    shieldGroup.position.set(0.18, -0.22, 0.46);
+    var shFrameMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.65, roughness: 0.35 });
+    var shPlateMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.45, roughness: 0.45 });
+    var shGlassMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.48 });
+    var shStripeMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+
+    var shMain = new THREE.Mesh(new THREE.BoxGeometry(0.86, 1.34, 0.07), shPlateMat);
+    shMain.castShadow = true;
+    shieldGroup.add(shMain);
+    var shRimTop = new THREE.Mesh(new THREE.BoxGeometry(0.90, 0.10, 0.09), shFrameMat);
+    shRimTop.position.y = 0.64;
+    shieldGroup.add(shRimTop);
+    var shRimBot = new THREE.Mesh(new THREE.BoxGeometry(0.90, 0.10, 0.09), shFrameMat);
+    shRimBot.position.y = -0.64;
+    shieldGroup.add(shRimBot);
+    var shGlass = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.26, 0.085), shGlassMat);
+    shGlass.position.y = 0.34;
+    shieldGroup.add(shGlass);
+    var shStripe = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.07, 0.08), shStripeMat);
+    shStripe.position.y = 0.08;
+    shieldGroup.add(shStripe);
+    elbowL.add(shieldGroup);
+
+    // Right hand mount: 警棍 (Baton) AND 手槍 (Pistol)
+    var batonGroup = new THREE.Group();
+    batonGroup.position.set(0, -0.40, 0.08);
+    var batonMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7, roughness: 0.28 });
+    var batonTipMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, roughness: 0.2 });
+    var batonShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.038, 0.74, 10), batonMat);
+    batonShaft.rotation.x = Math.PI / 2;
+    batonShaft.position.z = 0.32;
+    batonGroup.add(batonShaft);
+    var batonGuard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.05), shFrameMat);
+    batonGuard.position.z = 0.08;
+    batonGroup.add(batonGuard);
+    var batonTip = new THREE.Mesh(new THREE.SphereGeometry(0.052, 8, 8), batonTipMat);
+    batonTip.position.z = 0.69;
+    batonGroup.add(batonTip);
+    elbowR.add(batonGroup);
+
+    var pistolGroup = new THREE.Group();
+    pistolGroup.position.set(0, -0.38, 0.10);
+    var pistolSlideMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8, roughness: 0.25 });
+    var pistolGrip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.20, 0.11), batonMat);
+    pistolGrip.position.set(0, -0.06, 0.04);
+    pistolGroup.add(pistolGrip);
+    var pistolSlide = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.36), pistolSlideMat);
+    pistolSlide.position.set(0, 0.04, 0.16);
+    pistolGroup.add(pistolSlide);
+    var pistolMuzzleRef = new THREE.Object3D();
+    pistolMuzzleRef.position.set(0, 0.04, 0.36);
+    pistolGroup.add(pistolMuzzleRef);
+    elbowR.add(pistolGroup);
+
+    // Tactical parachute for airdrop descent (空投降落傘)
+    var chuteGroup = new THREE.Group();
+    chuteGroup.position.y = 2.1;
+    var canopyMat = new THREE.MeshStandardMaterial({ color: 0x3f4f3c, roughness: 0.8, side: THREE.DoubleSide });
+    var canopy = new THREE.Mesh(new THREE.SphereGeometry(1.85, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.52), canopyMat);
+    canopy.position.y = 1.65;
+    chuteGroup.add(canopy);
+    var cordMat = new THREE.MeshBasicMaterial({ color: 0xcbd5e1 });
+    [[-1.1, -0.9], [1.1, -0.9], [-1.1, 0.9], [1.1, 0.9]].forEach(function (cp) {
+      var cord = new THREE.Mesh(new THREE.BoxGeometry(0.025, 1.85, 0.025), cordMat);
+      cord.position.set(cp[0] * 0.55, 0.85, cp[1] * 0.55);
+      cord.rotation.z = cp[0] * -0.32;
+      cord.rotation.x = cp[1] * 0.32;
+      chuteGroup.add(cord);
+    });
+    g.add(chuteGroup);
+
+    var labelSprite = makeEnemyOverheadLabel();
+    g.add(labelSprite);
+
+    return {
+      group: g, legL: lL, legR: lR, armL: aL, armR: aR,
+      kneeL: kneeL, kneeR: kneeR, elbowL: elbowL, elbowR: elbowR,
+      shieldGroup: shieldGroup, batonGroup: batonGroup, pistolGroup: pistolGroup,
+      pistolMuzzleRef: pistolMuzzleRef, chuteGroup: chuteGroup, labelSprite: labelSprite
+    };
+  }
+
+  function buildTransportAircraftMesh() {
+    var g = new THREE.Group();
+    var hullMat = new THREE.MeshStandardMaterial({ color: 0x3b4938, roughness: 0.65, metalness: 0.28 });
+    var darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45, metalness: 0.55 });
+    var glassMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x075985, roughness: 0.15 });
+    var beaconRed = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    var beaconGrn = new THREE.MeshBasicMaterial({ color: 0x22c55e });
+
+    // Main cargo fuselage
+    var fuse = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.1, 14.5), hullMat);
+    fuse.castShadow = true;
+    g.add(fuse);
+
+    // Nose cone & cockpit windshield
+    var nose = new THREE.Mesh(new THREE.BoxGeometry(2.9, 2.2, 3.2), hullMat);
+    nose.position.set(0, -0.3, 8.4);
+    g.add(nose);
+    var windshield = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.95, 1.8), glassMat);
+    windshield.position.set(0, 0.72, 7.6);
+    windshield.rotation.x = -0.25;
+    g.add(windshield);
+
+    // Upswept tail section & open rear cargo airdrop ramp
+    var tailBoom = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.3, 5.2), hullMat);
+    tailBoom.position.set(0, 0.45, -9.2);
+    tailBoom.rotation.x = 0.12;
+    g.add(tailBoom);
+    var cargoRamp = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.22, 3.6), darkMat);
+    cargoRamp.position.set(0, -1.25, -8.4);
+    cargoRamp.rotation.x = 0.38;
+    g.add(cargoRamp);
+
+    // High-mounted main wing (22m wingspan)
+    var wing = new THREE.Mesh(new THREE.BoxGeometry(22.0, 0.42, 3.4), hullMat);
+    wing.position.set(0, 1.55, 0.8);
+    wing.castShadow = true;
+    g.add(wing);
+
+    // Vertical tail fin & horizontal stabilizer
+    var vFin = new THREE.Mesh(new THREE.BoxGeometry(0.45, 4.4, 3.2), hullMat);
+    vFin.position.set(0, 3.2, -10.8);
+    vFin.rotation.x = -0.18;
+    g.add(vFin);
+    var hStab = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.32, 2.1), darkMat);
+    hStab.position.set(0, 2.2, -10.9);
+    g.add(hStab);
+
+    // Wingtip strobes
+    var tipL = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8), beaconRed);
+    tipL.position.set(11.1, 1.6, 0.8);
+    g.add(tipL);
+    var tipR = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8), beaconGrn);
+    tipR.position.set(-11.1, 1.6, 0.8);
+    g.add(tipR);
+
+    // 4 Turboprop engine nacelles + spinning propellers
+    var props = [];
+    [-7.8, -4.2, 4.2, 7.8].forEach(function (wx) {
+      var nac = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 3.6), darkMat);
+      nac.position.set(wx, 1.05, 1.5);
+      g.add(nac);
+      var pHub = new THREE.Group();
+      pHub.position.set(wx, 1.05, 3.45);
+      var b1 = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.22, 0.08), beaconRed);
+      var b2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.3, 0.08), darkMat);
+      pHub.add(b1); pHub.add(b2);
+      g.add(pHub);
+      props.push(pHub);
+    });
+
+    return { group: g, props: props };
   }
 
   function rebuildWorldMeshesAndEntities(centerGx, centerGz) {
@@ -1308,52 +1586,7 @@ body {
 
 
 
-    // 5. Sync NPCs in open intersections
-    var existingNPCMap = {};
-    activeNPCs.forEach(function (npc) { existingNPCMap[npc.key] = npc; });
-    var nextNPCs = [];
-    while (npcGroup.children.length > 0) {
-      npcGroup.remove(npcGroup.children[0]);
-    }
-
-    Object.keys(activeCells).forEach(function (k) {
-      var c = activeCells[k];
-      if (c.wall) return;
-      // Spawn NPCs frequently across open street cells so there are plenty of targets to slash
-      var shouldSpawn = (c.gx === 1 && c.gz === 0) || (!(c.gx === 0 && c.gz === 0) && hash2(c.gx, c.gz, 311) < 0.42);
-      if (!shouldSpawn) return;
-      if (existingNPCMap[k]) {
-        npcGroup.add(existingNPCMap[k].group);
-        nextNPCs.push(existingNPCMap[k]);
-        return;
-      }
-      var profIdx = Math.floor(hash2(c.gx, c.gz, 317) * NPC_PROFILES.length);
-      var prof = NPC_PROFILES[profIdx];
-      var rigObj = createNPCRig(prof.color, prof.hat);
-      var dirAngle = hash2(c.gx, c.gz, 331) * Math.PI * 2;
-      var npc = {
-        key: k,
-        name: prof.name,
-        line: prof.line,
-        color: prof.color,
-        x: c.cx, y: 0, z: c.cz,
-        vy: 0, kVx: 0, kVz: 0,
-        hurtTimer: 0, spinVel: 0,
-        homeX: c.cx, homeZ: c.cz,
-        vx: Math.sin(dirAngle) * 2.1,
-        vz: Math.cos(dirAngle) * 2.1,
-        yaw: dirAngle,
-        phase: hash2(c.gx, c.gz, 347) * 10,
-        group: rigObj.group,
-        legL: rigObj.legL, legR: rigObj.legR,
-        armL: rigObj.armL, armR: rigObj.armR,
-        kneeL: rigObj.kneeL, kneeR: rigObj.kneeR, elbowL: rigObj.elbowL, elbowR: rigObj.elbowR
-      };
-      npc.group.position.set(npc.x, 0, npc.z);
-      npcGroup.add(npc.group);
-      nextNPCs.push(npc);
-    });
-    activeNPCs = nextNPCs;
+    // Resident NPCs removed; enemy NPCs persist in npcGroup across cell streaming.
   }
 
   function nearTower(x, z, m) {
@@ -2487,11 +2720,10 @@ body {
     var fwdX = Math.sin(fYaw), fwdZ = Math.cos(fYaw);
     var hitAny = false;
 
-    // 1. Check physical blade segment contact with NPC body (radius 0.56m, height 0.1..1.85m)
-    for (var ni = 0; ni < activeNPCs.length; ni++) {
+    // 1. Check physical blade segment contact with Enemy NPC body (80 damage per slash)
+    for (var ni = activeNPCs.length - 1; ni >= 0; ni--) {
       var npc = activeNPCs[ni];
-      if (npc.hurtTimer > 0.25) continue;
-      // Find closest Y on NPC torso to the blade segment
+      if (npc.hurtTimer > 0.25 || npc.hp <= 0) continue;
       var midY = (ay + by) * 0.5;
       var testY = Math.max(npc.y + 0.15, Math.min(npc.y + 1.85, midY));
       var dNpc = distPointToBladeSegment(npc.x, testY, npc.z, ax, ay, az, wbx, wby, wbz);
@@ -2499,17 +2731,28 @@ body {
         hitAny = true;
         var dxN = npc.x - pos.x, dzN = npc.z - pos.z;
         var distN = Math.hypot(dxN, dzN) || 1;
-        npc.kVx = (dxN / distN) * 18.5 + fwdX * 4;
-        npc.kVz = (dzN / distN) * 18.5 + fwdZ * 4;
-        npc.vy = 10.5;
-        npc.hurtTimer = 0.85;
-        npc.spinVel = (Math.random() < 0.5 ? 1 : -1) * 22;
+        npc.hp = Math.max(0, npc.hp - 80);
+        if (NET.on) NET.r.emit('npc_hit', { id: npc.id, d: 80, sh: 0 });
+        npc.kVx = (dxN / distN) * 16.5 + fwdX * 4;
+        npc.kVz = (dzN / distN) * 16.5 + fwdZ * 4;
+        npc.vy = 9.0;
+        npc.hurtTimer = 0.65;
+        npc.spinVel = (Math.random() < 0.5 ? 1 : -1) * 18;
+        // Being attacked reveals player position for 2 seconds to all NPCs
+        enemyIntel.recordTimer = NPC_RECORD_DURATION;
+        enemyIntel.knownPos.set(pos.x, pos.y, pos.z);
+        enemyIntel.lastSeenPos.copy(enemyIntel.knownPos);
+        enemyIntel.hasLastSeen = true;
         sfxBladeHit();
         spawnPickupBurst(npc.x, testY, npc.z, 0xef4444);
-        spawnFloatingScoreText(new THREE.Vector3(npc.x, npc.y + 2.1, npc.z), '斬擊 ' + npc.name + '!', '#f87171');
-        npcBanner.classList.add('visible');
-        npcTag.textContent = npc.name;
-        npcText.textContent = '哇啊——好凌厲的交叉斬！被砍飛啦！';
+        if (npc.hp <= 0) {
+          spawnBrokenBladeFX(new THREE.Vector3(npc.x, npc.y + 1.2, npc.z));
+          spawnFloatingScoreText(new THREE.Vector3(npc.x, npc.y + 2.2, npc.z), '擊破 ' + npc.name + '!', '#facc15');
+          npcGroup.remove(npc.group);
+          activeNPCs.splice(ni, 1);
+        } else {
+          spawnFloatingScoreText(new THREE.Vector3(npc.x, npc.y + 2.1, npc.z), '斬擊 -80 (' + npc.hp + ' HP)', '#f87171');
+        }
       }
     }
 
@@ -3176,6 +3419,8 @@ body {
   function resetToOrigin() {
     pos.set(0, 0.2, 0);
     vel.x = 0; vel.z = 0; vy = 0;
+    soloPlayerHp = 100;
+    playerStunTimer = 0;
     grounded = true;
     fallPeakY = pos.y;
     preLandingBurstUsed = false;
@@ -3338,19 +3583,68 @@ body {
 
 
 
-    // Draw NPCs
+    // Draw Enemy NPC squad network links & positions
+    if (activeNPCs.length > 1) {
+      mctx.strokeStyle = enemyIntel.recordTimer > 0 ? 'rgba(239,68,68,0.38)' : 'rgba(56,189,248,0.28)';
+      mctx.lineWidth = 1.2;
+      mctx.beginPath();
+      for (var li = 0; li < activeNPCs.length; li++) {
+        var nA = activeNPCs[li];
+        var axM = (nA.x - pos.x + RADAR_M) * MS, azM = (nA.z - pos.z + RADAR_M) * MS;
+        var nB = activeNPCs[(li + 1) % activeNPCs.length];
+        var bxM = (nB.x - pos.x + RADAR_M) * MS, bzM = (nB.z - pos.z + RADAR_M) * MS;
+        mctx.moveTo(axM, azM);
+        mctx.lineTo(bxM, bzM);
+      }
+      mctx.stroke();
+    }
     for (var ni = 0; ni < activeNPCs.length; ni++) {
       var npc = activeNPCs[ni];
-      var nx = (npc.x - pos.x + RADAR_M) * MS;
-      var nz = (npc.z - pos.z + RADAR_M) * MS;
-      if (nx < 0 || nx > W || nz < 0 || nz > H) continue;
-      mctx.fillStyle = '#10b981';
-      mctx.strokeStyle = '#064e3b';
-      mctx.lineWidth = 1.5;
+      var dxM = npc.x - pos.x, dzM = npc.z - pos.z;
+      // Clamp distant enemies (up to 200m) to the edge of the radar so player can see direction of incoming squad
+      var distM = Math.hypot(dxM, dzM);
+      var clamped = false;
+      if (distM > RADAR_M - 4) {
+        dxM = (dxM / distM) * (RADAR_M - 4);
+        dzM = (dzM / distM) * (RADAR_M - 4);
+        clamped = true;
+      }
+      var nx = (dxM + RADAR_M) * MS;
+      var nz = (dzM + RADAR_M) * MS;
+      // Draw 30m vision cone when inside radar
+      if (!clamped && !npc.airdrop) {
+        var nva = Math.atan2(Math.cos(npc.yaw), Math.sin(npc.yaw));
+        mctx.fillStyle = npc.seesPlayer ? 'rgba(239,68,68,0.25)' : 'rgba(250,204,21,0.14)';
+        mctx.beginPath();
+        mctx.moveTo(nx, nz);
+        mctx.arc(nx, nz, 30 * MS, nva - 0.65, nva + 0.65);
+        mctx.closePath();
+        mctx.fill();
+      }
+      mctx.fillStyle = npc.airdrop ? '#38bdf8' : (npc.seesPlayer || enemyIntel.recordTimer > 0 ? '#ef4444' : '#f59e0b');
+      mctx.strokeStyle = '#0f172a';
+      mctx.lineWidth = 1.6;
       mctx.beginPath();
-      mctx.arc(nx, nz, 4.2, 0, Math.PI * 2);
+      mctx.arc(nx, nz, clamped ? 3.4 : 4.6, 0, Math.PI * 2);
       mctx.fill();
       mctx.stroke();
+    }
+    // Draw Military Transport Aircraft on radar
+    for (var piM = 0; piM < activePlanes.length; piM++) {
+      var pl = activePlanes[piM];
+      var pxM = Math.max(6, Math.min(W - 6, (pl.x - pos.x + RADAR_M) * MS));
+      var pzM = Math.max(6, Math.min(H - 6, (pl.z - pos.z + RADAR_M) * MS));
+      mctx.save();
+      mctx.translate(pxM, pzM);
+      mctx.rotate(Math.atan2(pl.vz, pl.vx));
+      mctx.fillStyle = '#fde047';
+      mctx.strokeStyle = '#1e293b';
+      mctx.lineWidth = 1.5;
+      mctx.beginPath();
+      mctx.moveTo(8, 0); mctx.lineTo(-6, 6); mctx.lineTo(-3, 0); mctx.lineTo(-6, -6);
+      mctx.closePath();
+      mctx.fill(); mctx.stroke();
+      mctx.restore();
     }
 
     // Origin marker if in radar
@@ -3405,6 +3699,492 @@ body {
     if (Math.hypot(pos.x, pos.z) < 12) return '迷宮起點廣場';
     var gx = Math.round(pos.x / CELL), gz = Math.round(pos.z / CELL);
     return '迷宮街區 (' + gx + ', ' + gz + ')';
+  }
+
+  /* ---------- Enemy NPC Helper Functions: Airdrop, Stair Pathfinding, Vision & Combat ---------- */
+  function groundAtCoord(px, py, pz) {
+    var g = 0;
+    for (var i = 0; i < activeTowers.length; i++) {
+      var t = activeTowers[i];
+      if (Math.abs(px - t.cx) > HALF_CELL + 0.5 || Math.abs(pz - t.cz) > HALF_CELL + 0.5) continue;
+      var bx = t.boxes;
+      for (var j = 0; j < bx.length; j++) {
+        var o = bx[j];
+        if (px > o.minX - 0.3 && px < o.maxX + 0.3 && pz > o.minZ - 0.3 && pz < o.maxZ + 0.3 &&
+            o.top <= py + STEP && o.top > g) {
+          g = o.top;
+        }
+      }
+    }
+    return g;
+  }
+
+  function resolveNpcHorizontal(px, py, pz, radius) {
+    // Resolve against loaded activeTowers
+    var res = resolveHorizontal(px, py, pz, radius);
+    px = res.x; pz = res.z;
+    // Also resolve against unloaded maze wall cells when NPC is between 120m and 200m from player
+    var gx = Math.round(px / CELL), gz = Math.round(pz / CELL);
+    var key = gx + ',' + gz;
+    if (!activeCells[key] && isMazeWall(gx, gz)) {
+      var cx = gx * CELL, cz = gz * CELL;
+      var minX = cx - HALF_CELL, maxX = cx + HALF_CELL;
+      var minZ = cz - HALF_CELL, maxZ = cz + HALF_CELL;
+      if (px > minX - radius && px < maxX + radius && pz > minZ - radius && pz < maxZ + radius) {
+        var dl = (px - (minX - radius)), dr = ((maxX + radius) - px);
+        var dtZ = (pz - (minZ - radius)), db = ((maxZ + radius) - pz);
+        var mn = Math.min(dl, dr, dtZ, db);
+        if (mn === dl) px = minX - radius;
+        else if (mn === dr) px = maxX + radius;
+        else if (mn === dtZ) pz = minZ - radius;
+        else pz = maxZ + radius;
+      }
+    }
+    return { x: px, z: pz };
+  }
+
+  function worldToTowerLocal(wx, wz, t) {
+    var dx = wx - t.cx, dz = wz - t.cz;
+    if (t.rot === 1) return { lx: dz, lz: -dx };
+    if (t.rot === 2) return { lx: -dx, lz: -dz };
+    if (t.rot === 3) return { lx: -dz, lz: dx };
+    return { lx: dx, lz: dz };
+  }
+
+  function towerLocalToWorld(lx, lz, t) {
+    var p = t.tr(lx, lz);
+    return { x: t.cx + p[0], z: t.cz + p[1] };
+  }
+
+  function pickRandomDropZone() {
+    // 降臨在玩家平面半徑 200 米隨機位置 (選擇開放街道格點，避免卡進實心大樓)
+    for (var attempt = 0; attempt < 40; attempt++) {
+      var r = 32 + Math.sqrt(Math.random()) * (DROP_MAX_RADIUS - 32);
+      var ang = Math.random() * Math.PI * 2;
+      var tx = pos.x + Math.cos(ang) * r;
+      var tz = pos.z + Math.sin(ang) * r;
+      var gx = Math.round(tx / CELL), gz = Math.round(tz / CELL);
+      if (!isMazeWall(gx, gz)) {
+        var wx = gx * CELL, wz = gz * CELL;
+        if (Math.hypot(wx - pos.x, wz - pos.z) <= DROP_MAX_RADIUS) {
+          return { x: wx, z: wz };
+        }
+      }
+    }
+    // Fallback to nearest even-even open intersection within 200m
+    var fgx = Math.round(pos.x / CELL / 2) * 2 + 2;
+    var fgz = Math.round(pos.z / CELL / 2) * 2;
+    return { x: fgx * CELL, z: fgz * CELL };
+  }
+
+  function spawnEnemyTrooperAt(x, y, z, waveNum, idxInWave, forcedId) {
+    var rigObj = createEnemyNPCRig();
+    var idNum = (typeof forcedId === 'number') ? forcedId : (nextNpcId++);
+    if (idNum >= nextNpcId) nextNpcId = idNum + 1;
+    // Alternate primary tactic (shield-baton vanguard vs pistol marksman); both carry Level 0 Baton+Shield & Pistol
+    var preferBaton = (idxInWave % 2 === 0);
+    var initWeapon = preferBaton ? 'baton' : 'pistol';
+    rigObj.batonGroup.visible = (initWeapon === 'baton');
+    rigObj.pistolGroup.visible = (initWeapon === 'pistol');
+
+    var dirToPlayer = Math.atan2(pos.x - x, pos.z - z);
+    var npc = {
+      id: idNum,
+      name: '0級敵兵#' + idNum,
+      level: 0,
+      preferBaton: preferBaton,
+      activeWeapon: initWeapon,     // 'baton' or 'pistol'
+      hasShield: true,
+      shieldHp: SHIELD_MAX_HP,      // 防爆盾正面擋子彈耐久 100 點
+      ammo: PISTOL_MAG_SIZE,        // 手槍彈夾 6 顆子彈
+      reloadTimer: 0,               // 換彈 3 秒計時器
+      fireCd: 0.4 + Math.random() * 0.4,
+      batonSwing: 0,
+      batonHitDone: false,
+      batonCd: 0,
+      hp: 100,
+      x: x, y: y, z: z,
+      vx: 0, vz: 0, vy: -13.0,
+      kVx: 0, kVz: 0,
+      hurtTimer: 0, spinVel: 0,
+      yaw: dirToPlayer,
+      aimPitch: 0,
+      phase: Math.random() * 6.28,
+      airdrop: y > 3.0,             // true while parachuting down from transport aircraft
+      seesPlayer: false,
+      patrolTarget: null,
+      patrolTimer: 0,
+      investigatePos: null,
+      group: rigObj.group,
+      legL: rigObj.legL, legR: rigObj.legR,
+      armL: rigObj.armL, armR: rigObj.armR,
+      kneeL: rigObj.kneeL, kneeR: rigObj.kneeR,
+      elbowL: rigObj.elbowL, elbowR: rigObj.elbowR,
+      shieldGroup: rigObj.shieldGroup,
+      batonGroup: rigObj.batonGroup,
+      pistolGroup: rigObj.pistolGroup,
+      pistolMuzzleRef: rigObj.pistolMuzzleRef,
+      chuteGroup: rigObj.chuteGroup,
+      labelSprite: rigObj.labelSprite
+    };
+    npc.chuteGroup.visible = npc.airdrop;
+    npc.group.position.set(npc.x, npc.y, npc.z);
+    npc.group.rotation.y = npc.yaw;
+    updateEnemyOverheadLabel(npc);
+    npcGroup.add(npc.group);
+    activeNPCs.push(npc);
+    return npc;
+  }
+
+  function triggerMilitaryAirdropWave(netData) {
+    if (NET.on && !netData) {
+      NET.r.emit('wave_req', {});
+      return;
+    }
+    if (netData) {
+      enemyWaveIndex = netData.w;
+    } else {
+      enemyWaveIndex += 1;
+    }
+    waveCountdown = WAVE_INTERVAL;
+    if (netData) NET.waveAt = Date.now() + WAVE_INTERVAL * 1000;
+    var count = netData ? netData.cnt : (2 + (enemyWaveIndex - 1)); // 初始 2 人，每次進攻新增 1 人
+    var drop = netData ? { x: netData.dx, z: netData.dz } : pickRandomDropZone();
+    var flyAng = netData ? netData.ang : (Math.random() * Math.PI * 2);
+    var baseId = (netData && typeof netData.baseId === 'number') ? netData.baseId : null;
+    var dx = Math.sin(flyAng), dz = Math.cos(flyAng);
+    var planeAlt = 68.0;
+    var startDist = -135.0, endDist = 165.0;
+    var built = buildTransportAircraftMesh();
+    var sx = drop.x + dx * startDist, sz = drop.z + dz * startDist;
+    built.group.position.set(sx, planeAlt, sz);
+    built.group.rotation.y = flyAng;
+    aircraftGroup.add(built.group);
+
+    activePlanes.push({
+      group: built.group,
+      props: built.props,
+      x: sx, y: planeAlt, z: sz,
+      vx: dx * 54.0, vz: dz * 54.0,
+      yaw: flyAng,
+      dropX: drop.x, dropZ: drop.z,
+      distTraveled: startDist,
+      maxDist: endDist,
+      dropped: false,
+      waveIndex: enemyWaveIndex,
+      spawnCount: count,
+      baseId: baseId,
+      smokeTick: 0
+    });
+
+    var dropDistFromPlayer = Math.round(Math.hypot(drop.x - pos.x, drop.z - pos.z));
+    playTone(130, 95, 0.45, 'sawtooth', 0.14);
+    npcBanner.classList.add('visible');
+    npcTag.textContent = '軍機空投';
+    npcText.textContent = '✈️ 第 ' + enemyWaveIndex + ' 波軍用運輸機進場！將於距離 ' + dropDistFromPlayer + 'm 處空投 ' + count + ' 名 0級NPC敵人！';
+    swapHint('✈️ 第 ' + enemyWaveIndex + ' 波空投 (' + count + '人 · ' + dropDistFromPlayer + 'm)', '#fbbf24');
+  }
+
+  var spawnWaveBtnEl = document.getElementById('spawnWaveBtn');
+  if (spawnWaveBtnEl) {
+    spawnWaveBtnEl.addEventListener('click', function () {
+      triggerMilitaryAirdropWave();
+      if (manualOpen) setManualOpen(false);
+    });
+  }
+
+  function canNpcSeePlayer(npc) {
+    if (npc.airdrop || npc.hp <= 0) return false;
+    var ex = npc.x, ey = npc.y + 1.55, ez = npc.z;
+    var px = pos.x, py = pos.y + 1.25, pz = pos.z;
+    var dx = px - ex, dy = py - ey, dz = pz - ez;
+    var d3 = Math.hypot(dx, dy, dz);
+    if (d3 > NPC_VISION_RANGE) return false; // 視野距離大約 30 米長
+    var dh = Math.hypot(dx, dz);
+    if (dh > 2.2) {
+      var fx = Math.sin(npc.yaw), fz = Math.cos(npc.yaw);
+      var cosAng = (dx * fx + dz * fz) / dh;
+      if (cosAng < 0.12) return false;       // 需在前方視野扇形內
+    }
+    // 檢查是否被建築牆壁或樓板遮擋
+    if (d3 > 0.6) {
+      var hit = raycastBuildings(ex, ey, ez, dx / d3, dy / d3, dz / d3, 0.15, d3 - 0.35);
+      if (hit && hit.point.y > 0.08) return false;
+    }
+    return true;
+  }
+
+  function findNextStreetWaypoint(startX, startZ, goalX, goalZ) {
+    var sgx = Math.round(startX / CELL), sgz = Math.round(startZ / CELL);
+    var ggx = Math.round(goalX / CELL), ggz = Math.round(goalZ / CELL);
+    if (sgx === ggx && sgz === ggz) return { x: goalX, z: goalZ };
+    // If Goal cell is a wall (e.g. player on rooftop or near wall), snap goal cell to nearest open neighbor
+    if (isMazeWall(ggx, ggz)) {
+      var adj = [[1,0],[-1,0],[0,1],[0,-1]];
+      var bestD = 1e9, bgx = ggx, bgz = ggz;
+      for (var i = 0; i < 4; i++) {
+        var nx = ggx + adj[i][0], nz = ggz + adj[i][1];
+        if (!isMazeWall(nx, nz)) {
+          var d = Math.hypot(nx * CELL - goalX, nz * CELL - goalZ);
+          if (d < bestD) { bestD = d; bgx = nx; bgz = nz; }
+        }
+      }
+      ggx = bgx; ggz = bgz;
+    }
+    if (sgx === ggx && sgz === ggz) return { x: goalX, z: goalZ };
+
+    // Bounded BFS on maze grid (within radius 12 cells = 288m)
+    var maxR = 12;
+    var qx = [sgx], qz = [sgz], qFirstX = [0], qFirstZ = [0];
+    var visited = {};
+    visited[sgx + ',' + sgz] = true;
+    var dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    var head = 0;
+    while (head < qx.length && head < 260) {
+      var cx = qx[head], cz = cz = qz[head];
+      var fx = qFirstX[head], fz = qFirstZ[head];
+      head++;
+      for (var d = 0; d < 4; d++) {
+        var nx = cx + dirs[d][0], nz = cz + dirs[d][1];
+        if (Math.abs(nx - sgx) > maxR || Math.abs(nz - sgz) > maxR) continue;
+        var k = nx + ',' + nz;
+        if (visited[k] || isMazeWall(nx, nz)) continue;
+        visited[k] = true;
+        var nfx = (fx === 0 && fz === 0) ? nx : fx;
+        var nfz = (fx === 0 && fz === 0) ? nz : fz;
+        if (nx === ggx && nz === ggz) {
+          return { x: nfx * CELL, z: nfz * CELL };
+        }
+        qx.push(nx); qz.push(nz);
+        qFirstX.push(nfx); qFirstZ.push(nfz);
+      }
+    }
+    return { x: goalX, z: goalZ };
+  }
+
+  function computeNpcTargetAndMove(npc, dt) {
+    // 1. Determine current goal based on shared 2s tracking or 100m perimeter rule
+    var hDistPlayer = Math.hypot(pos.x - npc.x, pos.z - npc.z);
+    var goalX = npc.x, goalY = npc.y, goalZ = npc.z;
+    var mode = 'patrol';
+
+    if (enemyIntel.recordTimer > 0) {
+      // 看到玩家後持續記錄玩家位置 2 秒，所有 NPC 同步知道
+      goalX = enemyIntel.knownPos.x;
+      goalY = enemyIntel.knownPos.y;
+      goalZ = enemyIntel.knownPos.z;
+      npc.investigatePos = { x: goalX, y: goalY, z: goalZ };
+      mode = 'combat';
+    } else if (hDistPlayer > OUTER_APPROACH_RADIUS) {
+      // 若玩家在平面半徑 100 米外，朝玩家方向推進至進入 100 米內
+      goalX = pos.x;
+      goalY = 0;
+      goalZ = pos.z;
+      mode = 'approach100m';
+    } else {
+      // 進入玩家平面 100 米內不能直接得知玩家位置：若有最後消失點先前往查看，否則與隊友分區巡邏街道
+      if (npc.investigatePos) {
+        goalX = npc.investigatePos.x;
+        goalY = npc.investigatePos.y;
+        goalZ = npc.investigatePos.z;
+        if (Math.hypot(goalX - npc.x, goalZ - npc.z) < 2.4 && Math.abs(goalY - npc.y) < 2.2) {
+          npc.investigatePos = null;
+        }
+      } else {
+        npc.patrolTimer -= dt;
+        if (!npc.patrolTarget || npc.patrolTimer <= 0 || Math.hypot(npc.patrolTarget.x - npc.x, npc.patrolTarget.z - npc.z) < 2.5) {
+          npc.patrolTimer = 5.0 + Math.random() * 4.0;
+          // Choose an open street cell in the neighborhood that isn't crowded by teammates
+          var baseGx = Math.round(npc.x / CELL), baseGz = Math.round(npc.z / CELL);
+          var bestPt = { x: npc.x, z: npc.z }, bestScore = -1e9;
+          var dirs = [[1,0],[-1,0],[0,1],[0,-1],[2,0],[-2,0],[0,2],[0,-2],[1,1],[-1,-1]];
+          for (var di = 0; di < dirs.length; di++) {
+            var cgx = baseGx + dirs[di][0], cgz = baseGz + dirs[di][1];
+            if (isMazeWall(cgx, cgz)) continue;
+            var cx = cgx * CELL, cz = cgz * CELL;
+            var matePenalty = 0;
+            for (var mi = 0; mi < enemyIntel.squadCoords.length; mi++) {
+              var m = enemyIntel.squadCoords[mi];
+              if (m.id === npc.id) continue;
+              var dm = Math.hypot(cx - m.x, cz - m.z);
+              if (dm < 28) matePenalty += (28 - dm) * 2.0;
+            }
+            var sc = Math.random() * 12 - matePenalty;
+            if (sc > bestScore) { bestScore = sc; bestPt = { x: cx, z: cz }; }
+          }
+          npc.patrolTarget = bestPt;
+        }
+        goalX = npc.patrolTarget.x;
+        goalY = 0;
+        goalZ = npc.patrolTarget.z;
+      }
+    }
+
+    // 2. Stair-climbing & doorway waypoint routing (NPC會根據情況爬樓梯找玩家)
+    var steerX = goalX, steerZ = goalZ;
+    var curTower = nearTower(npc.x, npc.z, -0.35);
+    if (curTower && !curTower.enterable) curTower = null;
+    var goalTower = nearTower(goalX, goalZ, -0.2);
+    if (goalTower && !goalTower.enterable) goalTower = null;
+
+    var npcFloor = Math.max(0, Math.floor((npc.y + 0.3) / FH));
+    var goalFloor = goalTower ? Math.min(goalTower.floors, Math.floor((goalY + 0.5) / FH)) : 0;
+
+    if (curTower && (!goalTower || curTower !== goalTower || (goalFloor === 0 && Math.hypot(goalX - curTower.cx, goalZ - curTower.cz) > HALF_CELL))) {
+      // NPC is inside curTower and needs to go down stairs & exit through 1F door
+      var locC = worldToTowerLocal(npc.x, npc.z, curTower);
+      if (npcFloor > 0) {
+        var stairBelow = npcFloor - 1;
+        if (stairBelow % 2 === 0) {
+          // Even floor stair below: top at (-5.4, +6.0), goes down toward (-5.4, -8.2)
+          var onStairEven = (locC.lx >= -7.3 && locC.lx <= -3.5 && locC.lz >= -6.5 && locC.lz <= 6.8);
+          var wpE = onStairEven ? towerLocalToWorld(-5.4, -8.2, curTower) : towerLocalToWorld(-5.4, 8.2, curTower);
+          steerX = wpE.x; steerZ = wpE.z;
+        } else {
+          // Odd floor stair below: top at (+5.4, -6.0), goes down toward (+5.4, +8.2)
+          var onStairOdd = (locC.lx >= 3.5 && locC.lx <= 7.3 && locC.lz >= -6.8 && locC.lz <= 6.5);
+          var wpO = onStairOdd ? towerLocalToWorld(5.4, 8.2, curTower) : towerLocalToWorld(5.4, -8.2, curTower);
+          steerX = wpO.x; steerZ = wpO.z;
+        }
+      } else {
+        // On 1F: exit through the doorway at lx=0, lz=-12
+        var wpExit = (locC.lz > -10.5 && Math.abs(locC.lx) > 2.2)
+          ? towerLocalToWorld(0, -9.0, curTower)
+          : towerLocalToWorld(0, -14.5, curTower);
+        steerX = wpExit.x; steerZ = wpExit.z;
+      }
+    } else if (goalTower && goalFloor > 0 && curTower !== goalTower) {
+      // Goal is upstairs in an enterable tower, and NPC is outside -> enter 1F doorway
+      var locG = worldToTowerLocal(npc.x, npc.z, goalTower);
+      var wpDoor = (locG.lz < -11.0 && Math.abs(locG.lx) < 2.4 && locG.lz > -16.5)
+        ? towerLocalToWorld(0, -8.6, goalTower)
+        : towerLocalToWorld(0, -14.2, goalTower);
+      steerX = wpDoor.x; steerZ = wpDoor.z;
+    } else if (curTower && curTower === goalTower) {
+      // Both NPC and goal are inside the same enterable tower
+      var locS = worldToTowerLocal(npc.x, npc.z, curTower);
+      if (npcFloor < goalFloor) {
+        // Climb UP staircase on floor f = npcFloor
+        if (npcFloor % 2 === 0) {
+          // Even floor stair at lx = -5.4, from lz = -6.0 (bottom) to lz = +6.0 (top)
+          var inLaneE = (locS.lx >= -7.25 && locS.lx <= -3.55 && (locS.lz <= -5.2 || (npc.y - npcFloor * FH) > 0.18));
+          var wpUpE;
+          if (inLaneE) {
+            wpUpE = towerLocalToWorld(-5.4, 8.2, curTower);
+          } else if (locS.lx > -2.5 && locS.lz > -6.2) {
+            wpUpE = towerLocalToWorld(0, -8.5, curTower);
+          } else {
+            wpUpE = towerLocalToWorld(-5.4, -8.2, curTower);
+          }
+          steerX = wpUpE.x; steerZ = wpUpE.z;
+        } else {
+          // Odd floor stair at lx = +5.4, from lz = +6.0 (bottom) to lz = -6.0 (top)
+          var inLaneO = (locS.lx >= 3.55 && locS.lx <= 7.25 && (locS.lz >= 5.2 || (npc.y - npcFloor * FH) > 0.18));
+          var wpUpO;
+          if (inLaneO) {
+            wpUpO = towerLocalToWorld(5.4, -8.2, curTower);
+          } else if (locS.lx < 2.5 && locS.lz < 6.2) {
+            wpUpO = towerLocalToWorld(0, 8.5, curTower);
+          } else {
+            wpUpO = towerLocalToWorld(5.4, 8.2, curTower);
+          }
+          steerX = wpUpO.x; steerZ = wpUpO.z;
+        }
+      } else if (npcFloor > goalFloor) {
+        // Descend DOWN staircase of floor s = npcFloor - 1
+        var sFloor = npcFloor - 1;
+        if (sFloor % 2 === 0) {
+          var onDownE = (locS.lx >= -7.25 && locS.lx <= -3.55 && locS.lz >= -6.5 && locS.lz <= 6.8);
+          var wpDnE = onDownE ? towerLocalToWorld(-5.4, -8.2, curTower) : towerLocalToWorld(-5.4, 8.2, curTower);
+          steerX = wpDnE.x; steerZ = wpDnE.z;
+        } else {
+          var onDownO = (locS.lx >= 3.55 && locS.lx <= 7.25 && locS.lz >= -6.8 && locS.lz <= 6.5);
+          var wpDnO = onDownO ? towerLocalToWorld(5.4, 8.2, curTower) : towerLocalToWorld(5.4, -8.2, curTower);
+          steerX = wpDnO.x; steerZ = wpDnO.z;
+        }
+      }
+    } else if (!curTower) {
+      // Street-level navigation: use maze grid BFS when target is in another street cell
+      var sgx = Math.round(npc.x / CELL), sgz = Math.round(npc.z / CELL);
+      var tgx = Math.round(steerX / CELL), tgz = Math.round(steerZ / CELL);
+      if (sgx !== tgx || sgz !== tgz) {
+        var wpStreet = findNextStreetWaypoint(npc.x, npc.z, steerX, steerZ);
+        steerX = wpStreet.x;
+        steerZ = wpStreet.z;
+      }
+    }
+
+    return { steerX: steerX, steerZ: steerZ, mode: mode, hDistPlayer: hDistPlayer };
+  }
+
+  function fireNpcPistolBullet(npc) {
+    npc.group.updateMatrixWorld(true);
+    var mPos = new THREE.Vector3();
+    npc.pistolMuzzleRef.getWorldPosition(mPos);
+    var tx = pos.x + vel.x * 0.12 + (Math.random() - 0.5) * 0.45;
+    var ty = pos.y + 1.15 + (Math.random() - 0.5) * 0.35;
+    var tz = pos.z + vel.z * 0.12 + (Math.random() - 0.5) * 0.45;
+    var dx = tx - mPos.x, dy = ty - mPos.y, dz = tz - mPos.z;
+    var len = Math.hypot(dx, dy, dz) || 1;
+    dx /= len; dy /= len; dz /= len;
+
+    var bg = new THREE.Group();
+    bg.position.copy(mPos);
+    bg.add(new THREE.Mesh(npcBulletGeo, npcBulletMat));
+    bg.add(new THREE.Mesh(npcBulletGlowGeo, npcBulletGlowMat));
+    bg.lookAt(mPos.x + dx, mPos.y + dy, mPos.z + dz);
+    npcBulletGroup.add(bg);
+
+    var bSpd = 46.0;
+    npcBullets.push({
+      group: bg,
+      x: mPos.x, y: mPos.y, z: mPos.z,
+      vx: dx * bSpd, vy: dy * bSpd, vz: dz * bSpd,
+      life: 1.6
+    });
+    if (NET.on && (!NET.host || NET.host === NET.me)) {
+      NET.r.emit('npc_shot', {
+        x: Math.round(mPos.x * 100) / 100,
+        y: Math.round(mPos.y * 100) / 100,
+        z: Math.round(mPos.z * 100) / 100,
+        vx: Math.round(dx * bSpd * 100) / 100,
+        vy: Math.round(dy * bSpd * 100) / 100,
+        vz: Math.round(dz * bSpd * 100) / 100
+      });
+    }
+    spawnHeatSmoke(mPos.x, mPos.y, mPos.z);
+    playTone(480, 160, 0.07, 'square', 0.09);
+  }
+
+  function damagePlayerFromNpc(dmg, isBatonStun, npcName) {
+    if (rollDashT > 0) {
+      // Invulnerable during ground dodge
+      swapHint('閃身迴避攻擊!', '#7dd3fc');
+      return;
+    }
+    if (isBatonStun) {
+      playerStunTimer = Math.max(playerStunTimer, BATON_STUN_TIME);
+      playTone(190, 75, 0.28, 'sawtooth', 0.16);
+      swapHint('💫 遭警棍擊中！螢幕晃動眩暈 1 秒', '#fde047');
+    } else {
+      playTone(220, 110, 0.12, 'sawtooth', 0.13);
+    }
+    var hurtEl = document.getElementById('hurt');
+    if (hurtEl) {
+      hurtEl.style.opacity = 1;
+      setTimeout(function () { hurtEl.style.opacity = 0; }, 220);
+    }
+    if (NET.on) {
+      NET.r.emit('npc_me', { d: dmg, bn: npcName || '0級敵兵' });
+    } else {
+      soloPlayerHp = Math.max(0, soloPlayerHp - dmg);
+      if (soloPlayerHp <= 0) {
+        soloPlayerHp = 100;
+        pos.set(0, 0.2, 0);
+        vel.x = 0; vel.z = 0; vy = 0;
+        swapHint('體力耗盡，已於起點廣場重整!', '#fca5a5');
+      }
+    }
   }
 
   /* ---------- main game loop ---------- */
@@ -3692,12 +4472,23 @@ body {
     ws.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.t === 'you') {
-        clearTimeout(fail); ready = true; NET.me = m.id; NET.on = true; NET.hp = 100; NET.roomName = roomName;
+        clearTimeout(fail); ready = true; NET.me = m.id; NET.host = m.host || m.id; NET.on = true; NET.hp = 100; NET.roomName = roomName;
+        firstWaveTriggered = true; // Server controls wave triggers in online rooms
+        enemyWaveIndex = m.w || 0;
+        NET.waveAt = Date.now() + (typeof m.next === 'number' ? m.next : WAVE_INTERVAL) * 1000; // countdown anchored to the room's first player
         netHud(); $m('netHud').style.display = 'flex'; $m('menuBtn').style.display = 'block'; $m('menu').style.display = 'none';
         setInterval(function () {
           if (!NET.on) return;
           var f2 = function (v) { return Math.round(v * 100) / 100; };
           send({ t: 'p', x: f2(pos.x), y: f2(pos.y), z: f2(pos.z), yaw: f2(faceYaw), c: [custState.bodyColor, custState.eyeColor, custState.hat], q: getPose(), g: getGrapple(), iv: rollDashT > 0 ? 1 : 0 });
+          if (NET.host === NET.me && activeNPCs.length > 0) {
+            var nList = [];
+            for (var ni = 0; ni < activeNPCs.length && ni < 36; ni++) {
+              var np = activeNPCs[ni];
+              nList.push([np.id, f2(np.x), f2(np.y), f2(np.z), f2(np.yaw), Math.round(np.hp), Math.round(np.shieldHp), np.activeWeapon === 'baton' ? 1 : 0, np.airdrop ? 1 : 0, f2(np.reloadTimer), np.ammo]);
+            }
+            send({ t: 'npc_sync', list: nList });
+          }
           netFlushFx(send);
         }, 50);
         (function loop() {
@@ -3711,6 +4502,7 @@ body {
           }
         })();
       } else if (m.t === 'n') {
+        if (m.host) NET.host = m.host;
         $m('netInfo').textContent = (NET.roomName === 'pub' ? '公用房間' : '私人房間 ' + String(NET.roomName).slice(2).toUpperCase()) + ' · 在線 ' + m.n + ' 人';
       } else if (m.t === 'p') {
         var R = NET.rem[m.id] || (NET.rem[m.id] = makeRemote(m.id));
@@ -3726,7 +4518,69 @@ body {
       } else if (m.t === 'cut') {
         if (grapple.hookedId) releaseGrapple();
       } else if (m.t === 'left') {
+        if (m.host) NET.host = m.host;
         removeRemote(m.id);
+      } else if (m.t === 'wave') {
+        triggerMilitaryAirdropWave(m);
+      } else if (m.t === 'npc_dmg') {
+        for (var ndi = activeNPCs.length - 1; ndi >= 0; ndi--) {
+          var nd = activeNPCs[ndi];
+          if (nd.id === m.id) {
+            nd.hp = m.hp;
+            nd.shieldHp = m.sh;
+            if (nd.shieldHp <= 0 && nd.hasShield) {
+              nd.hasShield = false;
+              nd.shieldGroup.visible = false;
+            }
+            if (nd.hp <= 0) {
+              spawnBrokenBladeFX(new THREE.Vector3(nd.x, nd.y + 1.2, nd.z));
+              npcGroup.remove(nd.group);
+              activeNPCs.splice(ndi, 1);
+            } else {
+              updateEnemyOverheadLabel(nd);
+            }
+            break;
+          }
+        }
+      } else if (m.t === 'npc_spot') {
+        enemyIntel.recordTimer = NPC_RECORD_DURATION;
+        enemyIntel.knownPos.set(m.x, m.y, m.z);
+        enemyIntel.lastSeenPos.copy(enemyIntel.knownPos);
+        enemyIntel.hasLastSeen = true;
+      } else if (m.t === 'npc_sync') {
+        if (NET.host !== NET.me && Array.isArray(m.list)) {
+          var mapById = {};
+          for (var ei = 0; ei < activeNPCs.length; ei++) mapById[activeNPCs[ei].id] = activeNPCs[ei];
+          for (var si = 0; si < m.list.length; si++) {
+            var row = m.list[si];
+            if (!Array.isArray(row) || row.length < 11) continue;
+            var nid = row[0];
+            var targetNpc = mapById[nid];
+            if (!targetNpc) {
+              targetNpc = spawnEnemyTrooperAt(row[1], row[2], row[3], Math.max(1, enemyWaveIndex), si, nid);
+            }
+            targetNpc.x += (row[1] - targetNpc.x) * 0.45;
+            targetNpc.y += (row[2] - targetNpc.y) * 0.45;
+            targetNpc.z += (row[3] - targetNpc.z) * 0.45;
+            targetNpc.yaw = row[4];
+            targetNpc.hp = row[5];
+            targetNpc.shieldHp = row[6];
+            targetNpc.hasShield = targetNpc.shieldHp > 0;
+            targetNpc.activeWeapon = row[7] ? 'baton' : 'pistol';
+            targetNpc.airdrop = !!row[8];
+            targetNpc.chuteGroup.visible = targetNpc.airdrop;
+            targetNpc.reloadTimer = row[9];
+            targetNpc.ammo = row[10];
+          }
+        }
+      } else if (m.t === 'npc_shot') {
+        var bgS = new THREE.Group();
+        bgS.position.set(m.x, m.y, m.z);
+        bgS.add(new THREE.Mesh(npcBulletGeo, npcBulletMat));
+        bgS.add(new THREE.Mesh(npcBulletGlowGeo, npcBulletGlowMat));
+        bgS.lookAt(m.x + m.vx, m.y + m.vy, m.z + m.vz);
+        npcBulletGroup.add(bgS);
+        npcBullets.push({ group: bgS, x: m.x, y: m.y, z: m.z, vx: m.vx, vy: m.vy, vz: m.vz, life: 1.6 });
       } else if (m.t === 'hp') {
         var old = NET.hp; NET.hp = m.hp; netHud();
         if (m.hp < old) {
@@ -4105,81 +4959,368 @@ body {
 
 
 
-    // Update wandering NPCs (including knockback physics when slashed!) & check proximity dialogue
-    var closestNPC = null, closestDist = 6.2;
-    for (var ni = 0; ni < activeNPCs.length; ni++) {
-      var npc = activeNPCs[ni];
-      if (npc.hurtTimer > 0 || npc.y > 0.01) {
-        npc.hurtTimer = Math.max(0, npc.hurtTimer - dt);
-        var knx = npc.x + npc.kVx * dt;
-        var knz = npc.z + npc.kVz * dt;
-        var resK = resolveHorizontal(knx, npc.y, knz, 0.52);
-        npc.x = resK.x;
-        npc.z = resK.z;
-        npc.kVx *= Math.max(0, 1 - dt * 3.2);
-        npc.kVz *= Math.max(0, 1 - dt * 3.2);
-        npc.vy -= GRAV * dt;
-        npc.y += npc.vy * dt;
-        if (npc.y <= 0) {
-          npc.y = 0; npc.vy = 0;
-        }
-        npc.yaw += npc.spinVel * dt;
-        npc.group.position.set(npc.x, npc.y, npc.z);
-        npc.group.rotation.y = npc.yaw;
-        npc.group.rotation.x = npc.y > 0.05 ? Math.sin(now * 0.025) * 0.65 : 0;
-        npc.armL.rotation.x = -2.4;
-        npc.armR.rotation.x = -2.4;
-        npc.elbowL.rotation.x = -0.5;
-        npc.elbowR.rotation.x = -0.5;
-        npc.kneeL.rotation.x = 0.6 + Math.sin(now * 0.02) * 0.3;
-        npc.kneeR.rotation.x = 0.6 + Math.sin(now * 0.02 + 2) * 0.3;
+    // 1. Trigger initial Wave 1 upon entering game, and every 5 minutes (300s) thereafter
+    if (NET.on) {
+      // Online: server owns the timer (started by the room's first player). Client only displays it.
+      waveCountdown = Math.max(0, ((NET.waveAt || 0) - Date.now()) / 1000);
+    }
+    if (!menuOpen) {
+      if (NET.on) {
+        // no client-side auto trigger online
+      } else if (!firstWaveTriggered) {
+        firstWaveTriggered = true;
+        triggerMilitaryAirdropWave();
       } else {
-        npc.group.rotation.x = 0;
-        var nx = npc.x + npc.vx * dt;
-        var nz = npc.z + npc.vz * dt;
-        var resN = resolveHorizontal(nx, 0, nz, 0.52);
-        if (Math.abs(resN.x - nx) > 0.001 || Math.abs(resN.z - nz) > 0.001 ||
-            Math.hypot(resN.x - npc.homeX, resN.z - npc.homeZ) > 14.5) {
-          var newAng = Math.atan2(-npc.vx, -npc.vz) + (Math.random() - 0.5) * 1.5;
-          npc.vx = Math.sin(newAng) * 2.1;
-          npc.vz = Math.cos(newAng) * 2.1;
-        } else {
-          npc.x = resN.x;
-          npc.z = resN.z;
+        waveCountdown -= dt;
+        if (waveCountdown <= 0) {
+          triggerMilitaryAirdropWave();
         }
-        npc.yaw += angDiff(npc.yaw, Math.atan2(npc.vx, npc.vz)) * Math.min(1, dt * 10);
-        npc.phase += 3.2 * dt;
-        var nSwing = Math.sin(npc.phase) * 0.65;
-        npc.legL.rotation.x = nSwing;
-        npc.legR.rotation.x = -nSwing;
-        npc.armL.rotation.x = -nSwing;
-        npc.armR.rotation.x = nSwing;
-        npc.kneeL.rotation.x = 0.06 + 0.85 * Math.max(0, -Math.cos(npc.phase));
-        npc.kneeR.rotation.x = 0.06 + 0.85 * Math.max(0, Math.cos(npc.phase));
-        npc.elbowL.rotation.x = -(0.14 + 0.45 * Math.max(0, Math.sin(npc.phase)));
-        npc.elbowR.rotation.x = -(0.14 + 0.45 * Math.max(0, -Math.sin(npc.phase)));
-        npc.group.position.set(npc.x, Math.abs(Math.sin(npc.phase)) * 0.04, npc.z);
-        npc.group.rotation.y = npc.yaw;
       }
-
-      var dPlayer = Math.hypot(pos.x - npc.x, pos.z - npc.z);
-      if (dPlayer < closestDist && Math.abs(pos.y) < 3.5) {
-        closestDist = dPlayer;
-        closestNPC = npc;
-        // Turn NPC to greet player when very close
-        if (dPlayer < 3.5) {
-          npc.group.rotation.y = Math.atan2(pos.x - npc.x, pos.z - npc.z);
-          npc.armR.rotation.x = -2.4 + Math.sin(now * 0.012) * 0.35; // wave hand!
-          npc.elbowR.rotation.x = -(0.65 + 0.45 * Math.sin(now * 0.022));
-        }
+      if (!NET.on && soloPlayerHp < 100 && playerStunTimer <= 0) {
+        soloPlayerHp = Math.min(100, soloPlayerHp + 2.5 * dt);
       }
     }
 
-    if (closestNPC) {
+    // 2. Update Military Transport Aircraft (運輸軍用飛機) & deploy paratroopers over drop zone
+    for (var pi = activePlanes.length - 1; pi >= 0; pi--) {
+      var pl = activePlanes[pi];
+      var stepDist = Math.hypot(pl.vx, pl.vz) * dt;
+      pl.x += pl.vx * dt;
+      pl.z += pl.vz * dt;
+      pl.distTraveled += stepDist;
+      pl.group.position.set(pl.x, pl.y, pl.z);
+      for (var pri = 0; pri < pl.props.length; pri++) {
+        pl.props[pri].rotation.z += dt * 38;
+      }
+      pl.smokeTick += dt;
+      if (pl.smokeTick >= 0.06) {
+        pl.smokeTick = 0;
+        spawnHeatSmoke(pl.x - Math.sin(pl.yaw) * 7.5, pl.y - 0.5, pl.z - Math.cos(pl.yaw) * 7.5);
+      }
+      if (!pl.dropped && pl.distTraveled >= 0) {
+        pl.dropped = true;
+        for (var sIdx = 0; sIdx < pl.spawnCount; sIdx++) {
+          var spreadAng = (sIdx / Math.max(1, pl.spawnCount)) * Math.PI * 2;
+          var spreadR = (pl.spawnCount > 1) ? (2.2 + (sIdx % 3) * 1.4) : 0;
+          var sxNpc = pl.dropX + Math.cos(spreadAng) * spreadR;
+          var szNpc = pl.dropZ + Math.sin(spreadAng) * spreadR;
+          var fId = (typeof pl.baseId === 'number') ? (pl.baseId + sIdx) : undefined;
+          spawnEnemyTrooperAt(sxNpc, pl.y - 2.2 - sIdx * 1.1, szNpc, pl.waveIndex, sIdx, fId);
+        }
+        playTone(360, 180, 0.25, 'triangle', 0.13);
+      }
+      if (pl.distTraveled >= pl.maxDist) {
+        aircraftGroup.remove(pl.group);
+        activePlanes.splice(pi, 1);
+      }
+    }
+
+    // 3. Synchronize Squad Coordinates (NPC互相知道各自隊友位置和座標) & Vision/Tracking (視野30m + 2秒同步紀錄)
+    enemyIntel.squadCoords.length = 0;
+    enemyIntel.anyDirectSight = false;
+    for (var sni = 0; sni < activeNPCs.length; sni++) {
+      var sn = activeNPCs[sni];
+      if (sn.hp <= 0) continue;
+      enemyIntel.squadCoords.push({
+        id: sn.id, x: sn.x, y: sn.y, z: sn.z,
+        gx: Math.round(sn.x / CELL), gz: Math.round(sn.z / CELL)
+      });
+      sn.seesPlayer = canNpcSeePlayer(sn);
+      if (sn.seesPlayer) enemyIntel.anyDirectSight = true;
+    }
+
+    if (enemyIntel.anyDirectSight) {
+      if (enemyIntel.recordTimer <= 0.05) {
+        playTone(740, 980, 0.12, 'square', 0.10);
+        if (NET.on) NET.r.emit('npc_spot', { x: pos.x, y: pos.y, z: pos.z });
+      }
+      enemyIntel.recordTimer = NPC_RECORD_DURATION; // 看到玩家後持續記錄玩家位置 2 秒
+    } else if (enemyIntel.recordTimer > 0) {
+      enemyIntel.recordTimer = Math.max(0, enemyIntel.recordTimer - dt);
+    }
+
+    if (enemyIntel.recordTimer > 0) {
+      // 紀錄位置時所有 NPC 同步知道玩家最新位置
+      enemyIntel.knownPos.set(pos.x, pos.y, pos.z);
+      enemyIntel.lastSeenPos.copy(enemyIntel.knownPos);
+      enemyIntel.hasLastSeen = true;
+    }
+
+    // 4. Update each 0級NPC Enemy (Parachute Landing, Stair Climbing, Baton+Shield & Pistol Combat)
+    for (var ni = activeNPCs.length - 1; ni >= 0; ni--) {
+      var npc = activeNPCs[ni];
+      npc.fireCd = Math.max(0, npc.fireCd - dt);
+      npc.batonCd = Math.max(0, npc.batonCd - dt);
+      if (npc.reloadTimer > 0) {
+        npc.reloadTimer = Math.max(0, npc.reloadTimer - dt);
+        if (npc.reloadTimer === 0) {
+          npc.ammo = PISTOL_MAG_SIZE;
+        }
+      }
+
+      if (npc.airdrop) {
+        // Parachuting down from the military transport aircraft
+        npc.vy = -12.5;
+        npc.y += npc.vy * dt;
+        var gDrop = groundAtCoord(npc.x, npc.y + 0.6, npc.z);
+        var resDrop = resolveNpcHorizontal(npc.x, Math.max(0, npc.y), npc.z, 0.52);
+        npc.x = resDrop.x; npc.z = resDrop.z;
+        npc.yaw += Math.sin(now * 0.003 + npc.id) * 0.4 * dt;
+        if (npc.y <= gDrop) {
+          npc.y = gDrop;
+          npc.vy = 0;
+          npc.airdrop = false;
+          npc.chuteGroup.visible = false;
+          spawnHeatSmoke(npc.x, npc.y + 0.2, npc.z);
+        }
+        npc.group.position.set(npc.x, npc.y, npc.z);
+        npc.group.rotation.set(0, npc.yaw, 0);
+        npc.armL.rotation.set(-2.5, 0, 0);
+        npc.armR.rotation.set(-2.5, 0, 0);
+        updateEnemyOverheadLabel(npc);
+        continue;
+      }
+
+      if (npc.hurtTimer > 0) {
+        npc.hurtTimer = Math.max(0, npc.hurtTimer - dt);
+        var knx = npc.x + npc.kVx * dt;
+        var knz = npc.z + npc.kVz * dt;
+        var resK = resolveNpcHorizontal(knx, npc.y, knz, 0.52);
+        npc.x = resK.x; npc.z = resK.z;
+        npc.kVx *= Math.max(0, 1 - dt * 3.5);
+        npc.kVz *= Math.max(0, 1 - dt * 3.5);
+        npc.vy -= GRAV * dt;
+        npc.y += npc.vy * dt;
+        var gK = groundAtCoord(npc.x, npc.y, npc.z);
+        if (npc.y <= gK) { npc.y = gK; npc.vy = 0; }
+        npc.yaw += npc.spinVel * dt;
+        npc.group.position.set(npc.x, npc.y, npc.z);
+        npc.group.rotation.y = npc.yaw;
+        npc.group.rotation.x = npc.y > gK + 0.08 ? Math.sin(now * 0.025) * 0.55 : 0;
+        updateEnemyOverheadLabel(npc);
+        continue;
+      }
+
+      npc.group.rotation.x = 0;
+      var nav = computeNpcTargetAndMove(npc, dt);
+      var dxSteer = nav.steerX - npc.x, dzSteer = nav.steerZ - npc.z;
+      var distSteer = Math.hypot(dxSteer, dzSteer);
+      var dirX = distSteer > 0.05 ? (dxSteer / distSteer) : 0;
+      var dirZ = distSteer > 0.05 ? (dzSteer / distSteer) : 0;
+
+      // Teammate separation using shared squadCoords (NPC互相知道各自隊友位置和座標)
+      var sepX = 0, sepZ = 0;
+      for (var tmi = 0; tmi < enemyIntel.squadCoords.length; tmi++) {
+        var mate = enemyIntel.squadCoords[tmi];
+        if (mate.id === npc.id) continue;
+        var mdx = npc.x - mate.x, mdz = npc.z - mate.z;
+        var mDist = Math.hypot(mdx, mdz);
+        if (mDist > 0.01 && mDist < 2.2 && Math.abs(npc.y - mate.y) < 2.5) {
+          var push = (2.2 - mDist) / 2.2;
+          sepX += (mdx / mDist) * push * 1.4;
+          sepZ += (mdz / mDist) * push * 1.4;
+        }
+      }
+      dirX += sepX; dirZ += sepZ;
+      var dirLen = Math.hypot(dirX, dirZ);
+      if (dirLen > 0.01) { dirX /= dirLen; dirZ /= dirLen; }
+
+      // Weapon selection & combat distance control
+      var hDistP = nav.hDistPlayer;
+      var vDiffP = Math.abs(pos.y - npc.y);
+      var inMeleeZone = (enemyIntel.recordTimer > 0 && hDistP <= 2.75 && vDiffP <= 2.3);
+      var canShootPlayer = (npc.seesPlayer && hDistP <= NPC_VISION_RANGE);
+
+      if (inMeleeZone) {
+        npc.activeWeapon = 'baton';
+      } else if (canShootPlayer && (!npc.preferBaton || vDiffP > 2.5 || hDistP > 7.5)) {
+        npc.activeWeapon = 'pistol';
+      } else {
+        npc.activeWeapon = npc.preferBaton ? 'baton' : 'pistol';
+      }
+      npc.batonGroup.visible = (npc.activeWeapon === 'baton');
+      npc.pistolGroup.visible = (npc.activeWeapon === 'pistol');
+      npc.shieldGroup.visible = npc.hasShield;
+
+      var moveSpd = (nav.mode === 'combat') ? (npc.activeWeapon === 'baton' ? 6.2 : 4.8) : (nav.mode === 'approach100m' ? 5.8 : 3.2);
+      // Pistol shooter pauses or slows down at optimal firing range when it has clear LoS
+      if (npc.activeWeapon === 'pistol' && canShootPlayer && hDistP > 4.5 && hDistP < 18.0 && vDiffP < 3.0) {
+        moveSpd = 1.4;
+      }
+      if (inMeleeZone && hDistP < 1.55) {
+        moveSpd = 0;
+      }
+
+      // Move horizontally with obstacle feeler fallback so NPC smoothly rounds building corners
+      var stepMove = moveSpd * dt;
+      var tryX = npc.x + dirX * stepMove, tryZ = npc.z + dirZ * stepMove;
+      var resM = resolveNpcHorizontal(tryX, npc.y, tryZ, 0.52);
+      if (Math.hypot(resM.x - tryX, resM.z - tryZ) > 0.002 && dirLen > 0.01) {
+        // Wall blocked direct line -> test +/- 55 deg & +/- 85 deg feelers
+        var baseAng = Math.atan2(dirX, dirZ);
+        var angles = [0.95, -0.95, 1.48, -1.48];
+        for (var ai = 0; ai < angles.length; ai++) {
+          var aTry = baseAng + angles[ai];
+          var fxT = npc.x + Math.sin(aTry) * stepMove;
+          var fzT = npc.z + Math.cos(aTry) * stepMove;
+          var rAlt = resolveNpcHorizontal(fxT, npc.y, fzT, 0.52);
+          if (Math.hypot(rAlt.x - fxT, rAlt.z - fzT) < 0.002) {
+            resM = rAlt;
+            dirX = Math.sin(aTry); dirZ = Math.cos(aTry);
+            break;
+          }
+        }
+      }
+      npc.x = resM.x;
+      npc.z = resM.z;
+
+      // Vertical physics & automatic step-up on stairs (NPC會根據情況爬樓梯)
+      var gNpc = groundAtCoord(npc.x, npc.y, npc.z);
+      if (gNpc > npc.y && gNpc - npc.y <= STEP + 0.05) {
+        npc.y = gNpc;
+        npc.vy = 0;
+      } else if (npc.y > gNpc) {
+        npc.vy = Math.max(-28, npc.vy - GRAV * dt);
+        npc.y += npc.vy * dt;
+        if (npc.y <= gNpc) { npc.y = gNpc; npc.vy = 0; }
+      } else {
+        npc.y = gNpc; npc.vy = 0;
+      }
+
+      // Facing yaw: face player when seeing/shooting/meleeing, else face movement direction
+      var targetYaw = npc.yaw;
+      if (canShootPlayer || inMeleeZone) {
+        targetYaw = Math.atan2(pos.x - npc.x, pos.z - npc.z);
+      } else if (dirLen > 0.05) {
+        targetYaw = Math.atan2(dirX, dirZ);
+      }
+      npc.yaw += angDiff(npc.yaw, targetYaw) * Math.min(1, dt * 12);
+
+      // Walk cycle animation
+      npc.phase += (moveSpd > 0.2 ? moveSpd * 0.95 : 1.2) * dt;
+      var wAmp = moveSpd > 0.2 ? Math.min(1, moveSpd / 5.0) : 0;
+      var nSwing = Math.sin(npc.phase) * 0.68 * wAmp;
+      npc.legL.rotation.x = nSwing;
+      npc.legR.rotation.x = -nSwing;
+      npc.kneeL.rotation.x = 0.06 + 0.82 * wAmp * Math.max(0, -Math.cos(npc.phase));
+      npc.kneeR.rotation.x = 0.06 + 0.82 * wAmp * Math.max(0, Math.cos(npc.phase));
+
+      // Left arm holds Riot Shield in front of torso (防爆盾正面擋子彈)
+      if (npc.hasShield) {
+        npc.armL.rotation.set(-0.95, 0.42, 0.12);
+        npc.elbowL.rotation.x = -0.58;
+      } else {
+        npc.armL.rotation.set(-nSwing * 0.7, 0, 0);
+        npc.elbowL.rotation.x = -0.25;
+      }
+
+      // Right arm: Baton forward swing (警棍向前揮擊造成1秒眩暈) OR Pistol aim & shoot (手槍6發彈夾換彈3秒)
+      if (inMeleeZone && npc.batonSwing <= 0 && npc.batonCd <= 0) {
+        npc.activeWeapon = 'baton';
+        npc.batonGroup.visible = true;
+        npc.pistolGroup.visible = false;
+        npc.batonSwing = 0.38;
+        npc.batonHitDone = false;
+        npc.batonCd = 1.25;
+        playTone(420, 160, 0.11, 'sawtooth', 0.10);
+      }
+
+      if (npc.batonSwing > 0) {
+        npc.batonSwing = Math.max(0, npc.batonSwing - dt);
+        var bProg = 1 - (npc.batonSwing / 0.38);
+        // Wind up (-2.3 rad) -> strike forward (-0.25 rad)
+        var strikeWave = bProg < 0.35 ? (bProg / 0.35) : (1 - (bProg - 0.35) / 0.65);
+        npc.armR.rotation.set(bProg < 0.35 ? Lf(-0.9, -2.35, strikeWave) : Lf(-2.35, -0.20, (bProg - 0.35) / 0.65), -0.15, 0);
+        npc.elbowR.rotation.x = -0.35;
+        if (!npc.batonHitDone && bProg >= 0.42 && bProg <= 0.78) {
+          var dHit = Math.hypot(pos.x - npc.x, pos.z - npc.z);
+          if (dHit <= 2.85 && Math.abs(pos.y - npc.y) <= 2.3) {
+            npc.batonHitDone = true;
+            damagePlayerFromNpc(15, true); // 15 damage + 1.0s camera shake stun!
+          }
+        }
+      } else if (npc.activeWeapon === 'pistol') {
+        if (npc.reloadTimer > 0) {
+          // 3-second pistol reload animation
+          var relWave = Math.sin(now * 0.012) * 0.25;
+          npc.armR.rotation.set(-1.05 + relWave, -0.38, 0);
+          npc.elbowR.rotation.x = -0.85;
+        } else if (canShootPlayer) {
+          // Aim pistol directly at player (including vertical elevation angle)
+          var dyAim = (pos.y + 1.2) - (npc.y + 1.5);
+          var pitchToPlayer = Math.atan2(dyAim, Math.max(0.5, hDistP));
+          npc.armR.rotation.set(-1.48 - pitchToPlayer, -0.08, 0);
+          npc.elbowR.rotation.x = -0.12;
+          if (npc.fireCd <= 0 && npc.ammo > 0) {
+            fireNpcPistolBullet(npc);
+            npc.ammo -= 1;
+            npc.fireCd = 0.65;
+            if (npc.ammo <= 0) {
+              npc.reloadTimer = PISTOL_RELOAD_TIME; // 彈夾 6 顆打空後換彈 3 秒
+            }
+          }
+        } else {
+          npc.armR.rotation.set(-0.75 + nSwing * 0.35, 0, 0);
+          npc.elbowR.rotation.x = -0.45;
+        }
+      } else {
+        // Carrying baton ready
+        npc.armR.rotation.set(-0.85 + nSwing * 0.45, -0.12, 0);
+        npc.elbowR.rotation.x = -0.55;
+      }
+
+      npc.group.position.set(npc.x, npc.y + Math.abs(Math.sin(npc.phase)) * 0.03 * wAmp, npc.z);
+      npc.group.rotation.y = npc.yaw;
+      updateEnemyOverheadLabel(npc);
+    }
+
+    // 5. Update Enemy Pistol Bullets (手槍子彈飛行與命中判定)
+    for (var ebi = npcBullets.length - 1; ebi >= 0; ebi--) {
+      var eb = npcBullets[ebi];
+      eb.life -= dt;
+      if (eb.life <= 0) {
+        npcBulletGroup.remove(eb.group);
+        npcBullets.splice(ebi, 1);
+        continue;
+      }
+      var esx = eb.vx * dt, esy = eb.vy * dt, esz = eb.vz * dt;
+      var esLen = Math.hypot(esx, esy, esz) || 0.001;
+      var enx = eb.x + esx, eny = eb.y + esy, enz = eb.z + esz;
+
+      // Check building wall occlusion
+      var wHitE = raycastBuildings(eb.x, eb.y, eb.z, esx / esLen, esy / esLen, esz / esLen, 0.0, esLen);
+      if (wHitE) {
+        spawnPickupBurst(wHitE.point.x, wHitE.point.y, wHitE.point.z, 0xfacc15);
+        npcBulletGroup.remove(eb.group);
+        npcBullets.splice(ebi, 1);
+        continue;
+      }
+
+      // Check player hit
+      var pTestY = Math.max(pos.y + 0.15, Math.min(pos.y + 1.95, (eb.y + eny) * 0.5));
+      var dPlayerB = distPointToBladeSegment(pos.x, pTestY, pos.z, eb.x, eb.y, eb.z, enx, eny, enz);
+      if (dPlayerB <= 0.58) {
+        damagePlayerFromNpc(12, false);
+        spawnPickupBurst(pos.x, pTestY, pos.z, 0xef4444);
+        npcBulletGroup.remove(eb.group);
+        npcBullets.splice(ebi, 1);
+        continue;
+      }
+
+      eb.x = enx; eb.y = eny; eb.z = enz;
+      eb.group.position.set(eb.x, eb.y, eb.z);
+    }
+
+    // 6. Update status banner for active alerts or stun
+    if (playerStunTimer > 0) {
       npcBanner.classList.add('visible');
-      npcTag.textContent = closestNPC.name;
-      npcText.textContent = closestNPC.line;
-    } else {
+      npcTag.textContent = '💫 眩暈';
+      npcText.textContent = '遭到 0級NPC 警棍正面揮擊！螢幕晃動眩暈中 (' + playerStunTimer.toFixed(1) + 's)';
+    } else if (enemyIntel.recordTimer > 0) {
+      npcBanner.classList.add('visible');
+      npcTag.textContent = '⚠️ 暴露';
+      npcText.textContent = '已被敵軍視野鎖定！全體 NPC 同步記錄你的位置 (' + enemyIntel.recordTimer.toFixed(1) + 's)';
+    } else if (activePlanes.length === 0) {
       npcBanner.classList.remove('visible');
     }
 
@@ -4309,26 +5450,61 @@ body {
       var nxB = ab.x + stepX, nyB = ab.y + stepY, nzB = ab.z + stepZ;
       var hitBullet = false;
 
-      // Check NPC collision
-      for (var nbi = 0; nbi < (ab.cosm ? 0 : activeNPCs.length); nbi++) {
+      // Check Enemy NPC collision (frontal Riot Shield blocks bullets with 100 durability; otherwise deals 10 damage)
+      for (var nbi = activeNPCs.length - 1; nbi >= 0; nbi--) {
+        if (ab.cosm) break;
         var npcB = activeNPCs[nbi];
+        if (npcB.hp <= 0) continue;
         var testYB = Math.max(npcB.y + 0.15, Math.min(npcB.y + 1.85, (ab.y + nyB) * 0.5));
         var dNpcB = distPointToBladeSegment(npcB.x, testYB, npcB.z, ab.x, ab.y, ab.z, nxB, nyB, nzB);
-        if (dNpcB <= 0.62) {
+        if (dNpcB <= 0.68) {
           hitBullet = true;
           var bLenH = Math.hypot(ab.vx, ab.vz) || 1;
-          npcB.kVx = (ab.vx / bLenH) * 14.5;
-          npcB.kVz = (ab.vz / bLenH) * 14.5;
-          npcB.vy = Math.max(npcB.vy, 6.8);
-          npcB.hurtTimer = 0.65;
-          npcB.spinVel = (Math.random() < 0.5 ? 1 : -1) * 18;
-          spawnPickupBurst(npcB.x, testYB, npcB.z, 0x94a3b8);
-          spawnHeatSmoke(npcB.x, testYB, npcB.z);
-          playTone(980, 320, 0.07, 'square', 0.11);
-          spawnFloatingScoreText(new THREE.Vector3(npcB.x, npcB.y + 2.1, npcB.z), '氣彈命中 ' + npcB.name + '!', '#cbd5e1');
-          npcBanner.classList.add('visible');
-          npcTag.textContent = npcB.name;
-          npcText.textContent = '嗚哇！好強勁的高壓氣彈連射！';
+          var inDirX = -ab.vx / bLenH, inDirZ = -ab.vz / bLenH;
+          var nFwdX = Math.sin(npcB.yaw), nFwdZ = Math.cos(npcB.yaw);
+          var frontCos = inDirX * nFwdX + inDirZ * nFwdZ;
+
+          // Reveal player position for 2s when attacking an NPC
+          enemyIntel.recordTimer = NPC_RECORD_DURATION;
+          enemyIntel.knownPos.set(pos.x, pos.y, pos.z);
+          enemyIntel.lastSeenPos.copy(enemyIntel.knownPos);
+          enemyIntel.hasLastSeen = true;
+
+          if (npcB.hasShield && npcB.shieldHp > 0 && frontCos > -0.05) {
+            // 防爆盾正面擋子彈 (耐久 100 點，每發氣彈消耗 10 點耐久)
+            npcB.shieldHp = Math.max(0, npcB.shieldHp - 10);
+            if (NET.on) NET.r.emit('npc_hit', { id: npcB.id, d: 0, sh: 10 });
+            spawnPickupBurst(ab.x, testYB, ab.z, 0x38bdf8);
+            playTone(1320, 680, 0.06, 'triangle', 0.12);
+            if (npcB.shieldHp <= 0) {
+              npcB.hasShield = false;
+              npcB.shieldGroup.visible = false;
+              spawnBrokenBladeFX(new THREE.Vector3(npcB.x + nFwdX * 0.4, npcB.y + 1.2, npcB.z + nFwdZ * 0.4));
+              spawnFloatingScoreText(new THREE.Vector3(npcB.x, npcB.y + 2.2, npcB.z), '💥 防爆盾擊碎!', '#38bdf8');
+            } else {
+              spawnFloatingScoreText(new THREE.Vector3(npcB.x, npcB.y + 2.1, npcB.z), '🛡️ 防爆盾格擋 (' + npcB.shieldHp + '/100)', '#7dd3fc');
+            }
+          } else {
+            // Direct body hit (10 damage)
+            npcB.hp = Math.max(0, npcB.hp - 10);
+            if (NET.on) NET.r.emit('npc_hit', { id: npcB.id, d: 10, sh: 0 });
+            npcB.kVx = (ab.vx / bLenH) * 6.5;
+            npcB.kVz = (ab.vz / bLenH) * 6.5;
+            npcB.vy = Math.max(npcB.vy, 3.2);
+            npcB.hurtTimer = 0.22;
+            npcB.spinVel = (Math.random() < 0.5 ? 1 : -1) * 8;
+            spawnPickupBurst(npcB.x, testYB, npcB.z, 0xef4444);
+            spawnHeatSmoke(npcB.x, testYB, npcB.z);
+            playTone(980, 320, 0.07, 'square', 0.11);
+            if (npcB.hp <= 0) {
+              spawnBrokenBladeFX(new THREE.Vector3(npcB.x, npcB.y + 1.2, npcB.z));
+              spawnFloatingScoreText(new THREE.Vector3(npcB.x, npcB.y + 2.2, npcB.z), '擊破 ' + npcB.name + '!', '#facc15');
+              npcGroup.remove(npcB.group);
+              activeNPCs.splice(nbi, 1);
+            } else {
+              spawnFloatingScoreText(new THREE.Vector3(npcB.x, npcB.y + 2.1, npcB.z), '氣彈 -10 (' + npcB.hp + ' HP)', '#fca5a5');
+            }
+          }
           break;
         }
       }
@@ -4865,25 +6041,39 @@ body {
       player.rotation.y = faceYaw;
     }
 
+    // Update baton stun timer & compute 1-second screen shake offset
+    var shakeX = 0, shakeY = 0, shakeZ = 0, shakePitch = 0, shakeYaw = 0;
+    if (playerStunTimer > 0) {
+      playerStunTimer = Math.max(0, playerStunTimer - realDt);
+      var stMag = (playerStunTimer / BATON_STUN_TIME);
+      shakeX = Math.sin(now * 0.065) * 0.32 * stMag + (Math.random() - 0.5) * 0.18 * stMag;
+      shakeY = Math.cos(now * 0.082) * 0.28 * stMag + (Math.random() - 0.5) * 0.16 * stMag;
+      shakeZ = Math.sin(now * 0.058 + 1.4) * 0.32 * stMag;
+      shakePitch = Math.sin(now * 0.075) * 0.085 * stMag;
+      shakeYaw = Math.cos(now * 0.068) * 0.095 * stMag;
+      vel.x *= Math.max(0, 1 - realDt * 4.5);
+      vel.z *= Math.max(0, 1 - realDt * 4.5);
+    }
+
     if (firstPerson) {
-      var eyeX = pos.x - Math.sin(yaw) * 0.08;
-      var eyeY = pos.y + 1.62 + bob * 1.15;
-      var eyeZ = pos.z - Math.cos(yaw) * 0.08;
-      var cpF = Math.cos(pitch);
+      var eyeX = pos.x - Math.sin(yaw) * 0.08 + shakeX * 0.4;
+      var eyeY = pos.y + 1.62 + bob * 1.15 + shakeY * 0.4;
+      var eyeZ = pos.z - Math.cos(yaw) * 0.08 + shakeZ * 0.4;
+      var cpF = Math.cos(pitch + shakePitch);
       camera.position.set(eyeX, eyeY, eyeZ);
       camera.lookAt(
-        eyeX - Math.sin(yaw) * cpF * 20,
-        eyeY - Math.sin(pitch) * 20,
-        eyeZ - Math.cos(yaw) * cpF * 20
+        eyeX - Math.sin(yaw + shakeYaw) * cpF * 20,
+        eyeY - Math.sin(pitch + shakePitch) * 20,
+        eyeZ - Math.cos(yaw + shakeYaw) * cpF * 20
       );
       camFocus.set(pos.x, pos.y + 1.9, pos.z);
     } else {
       // Follow camera with full upward/downward aiming ray through screen center
       camFocus.lerp(new THREE.Vector3(pos.x, pos.y + 2.05, pos.z), 1 - Math.exp(-dt * 12));
-      var cp = Math.cos(pitch);
-      var lookDirX = -Math.sin(yaw) * cp,
-          lookDirY = -Math.sin(pitch),
-          lookDirZ = -Math.cos(yaw) * cp;
+      var cp = Math.cos(pitch + shakePitch);
+      var lookDirX = -Math.sin(yaw + shakeYaw) * cp,
+          lookDirY = -Math.sin(pitch + shakePitch),
+          lookDirZ = -Math.cos(yaw + shakeYaw) * cp;
       var clear = 1.8;
       for (var cd = dist; cd > 1.8; cd -= 0.45) {
         var qx = camFocus.x - lookDirX * cd,
@@ -4901,14 +6091,14 @@ body {
       }
       camDist += (clear - camDist) * Math.min(1, dt * (clear < camDist ? 20 : 5));
       camera.position.set(
-        camFocus.x - lookDirX * camDist,
-        Math.max(0.45, camFocus.y - lookDirY * camDist),
-        camFocus.z - lookDirZ * camDist
+        camFocus.x - lookDirX * camDist + shakeX,
+        Math.max(0.45, camFocus.y - lookDirY * camDist + shakeY),
+        camFocus.z - lookDirZ * camDist + shakeZ
       );
       camera.lookAt(
-        camFocus.x + lookDirX * 30,
-        camFocus.y + lookDirY * 30,
-        camFocus.z + lookDirZ * 30
+        camFocus.x + lookDirX * 30 + shakeX * 2,
+        camFocus.y + lookDirY * 30 + shakeY * 2,
+        camFocus.z + lookDirZ * 30 + shakeZ * 2
       );
     }
 
@@ -5060,6 +6250,32 @@ body {
         shBar.classList.toggle('over', shadow.over);
         document.getElementById('rshadowSub').textContent = shadow.over ? '⚠ 過載：動作/冷卻 ×3 慢' : (shadow.idle > 0 ? '累積中' : '消退中');
       }
+
+      // Update Enemy Airdrop Wave & Intel HUD
+      var nextWaveCnt = 2 + Math.max(0, enemyWaveIndex);
+      document.getElementById('renemyWave').textContent = '第 ' + Math.max(1, enemyWaveIndex) + ' 波 (下波' + nextWaveCnt + '人)';
+      document.getElementById('renemyCount').textContent = '敵軍存活：' + activeNPCs.length + ' 人';
+      var remSec = Math.max(0, Math.ceil(waveCountdown));
+      var mm = Math.floor(remSec / 60), ss = remSec % 60;
+      document.getElementById('renemyTimer').textContent = '下波 ' + (mm < 10 ? '0' + mm : mm) + ':' + (ss < 10 ? '0' + ss : ss);
+      var waveProg = ((WAVE_INTERVAL - Math.max(0, waveCountdown)) / WAVE_INTERVAL) * 100;
+      document.getElementById('enemyWaveBar').style.width = waveProg.toFixed(1) + '%';
+
+      var elAlert = document.getElementById('renemyAlert');
+      if (playerStunTimer > 0) {
+        elAlert.textContent = '💫 警棍眩暈 ' + playerStunTimer.toFixed(1) + 's';
+        elAlert.style.color = '#fde047';
+      } else if (enemyIntel.recordTimer > 0) {
+        elAlert.textContent = '⚠️ 位置同步紀錄 ' + enemyIntel.recordTimer.toFixed(1) + 's';
+        elAlert.style.color = '#f87171';
+      } else {
+        elAlert.textContent = '視野30m：未暴露';
+        elAlert.style.color = '#9db0bf';
+      }
+      var curHp = NET.on ? Math.round(NET.hp) : Math.round(soloPlayerHp);
+      var elPhp = document.getElementById('rplayerHp');
+      elPhp.textContent = 'HP ' + curHp + '/100';
+      elPhp.style.color = curHp > 40 ? '#34d399' : '#f87171';
     }
   }
   requestAnimationFrame(frame);
