@@ -17,6 +17,9 @@ const wss = new WebSocketServer({ server });
 const rooms = new Map();            // roomName -> Set<client>
 const roomStates = new Map();       // roomName -> { waveIndex, nextNpcId, waveTimer, npcs: Map<id, {hp, sh}> }
 let nextId = 1;
+let nextTeam = 1;
+const MAX_TEAM = 4;
+const TEAM_INVITE_RANGE = 40;
 const MAX_PER_ROOM = 16;
 const WAVE_INTERVAL_MS = 300 * 1000; // 每 5 分鐘 (300秒) 空投一波
 
@@ -50,6 +53,27 @@ function clearHooks(c) {
   }
   c.hooking = null;
   c.hookedBy = null;
+}
+
+// ---- 組隊 ----
+function teamMembers(room, tid) {
+  const a = [];
+  for (const o of room) if (o.team === tid) a.push(o);
+  return a;
+}
+function teamsPayload(room) {
+  const m = {}, h = {}, nx = {}, cp = {}, rc = {};
+  const st = roomStates.get(room.rname), now = Date.now();
+  for (const o of room) {
+    m[o.id] = o.team;
+    if (!h[o.team]) h[o.team] = o.id;
+    if (!(o.team in nx)) { const T = st && st.teams.get(o.team); nx[o.team] = T ? Math.max(0, Math.round((T.nextAt - now) / 1000)) : 0; cp[o.team] = T ? T.captain : null; rc[o.team] = T ? !!T.recruit : false; }
+  }
+  return { m, h, nx, cp, rc };
+}
+function broadcastTeams(room, extra) {
+  const p = teamsPayload(room);
+  broadcastAll(room, Object.assign({ t: 'teams', m: p.m, h: p.h, nx: p.nx, cp: p.cp, rc: p.rc }, extra || {}));
 }
 
 // 與前端完全一致的迷宮建築格點雜湊判定，確保伺服器端空投點選在開放街道
@@ -91,49 +115,80 @@ function pickDropZoneNear(px, pz) {
   return { x: fgx * CELL, z: fgz * CELL };
 }
 
-function triggerRoomWave(roomName) {
-  const room = rooms.get(roomName);
-  const st = roomStates.get(roomName);
-  if (!room || !st || room.size === 0) return;
+const FAR_SPLIT_DIST = 500;   // 隊友平面距離超過此值 → 敵人平均分配到各處
 
-  // 以房間內隨機一名存活玩家的平面座標為基準，在半徑 200 米內隨機空投
-  const alive = [...room].filter(c => !c.dead);
-  const ref = alive.length > 0 ? alive[Math.floor(Math.random() * alive.length)] : getRoomHost(room);
-  const drop = pickDropZoneNear(ref ? ref.x : 0, ref ? ref.z : 0);
-
-  st.waveIndex += 1;
-  const count = 2 + (st.waveIndex - 1); // 初始 2 人，每次進攻新增 1 人
-  const baseId = st.nextNpcId;
-  st.nextNpcId += count;
-  st.lastWaveAt = Date.now();
-
-  for (let i = 0; i < count; i++) {
-    const id = baseId + i;
-    st.npcs.set(id, { id, hp: 100, sh: 100 });
+// 隊員依平面距離分群(距離 <= 500m 視為同一處)
+function clusterMembers(list) {
+  const groups = [], seen = new Set();
+  for (const a of list) {
+    if (seen.has(a)) continue;
+    const grp = [a], stack = [a];
+    seen.add(a);
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const b of list) {
+        if (!seen.has(b) && Math.hypot(cur.x - b.x, cur.z - b.z) <= FAR_SPLIT_DIST) { seen.add(b); grp.push(b); stack.push(b); }
+      }
+    }
+    groups.push(grp);
   }
+  return groups;
+}
 
-  const flyAng = Math.round(Math.random() * Math.PI * 2 * 1000) / 1000;
-  broadcastAll(room, {
-    t: 'wave',
-    w: st.waveIndex,
-    cnt: count,
-    baseId,
-    dx: drop.x,
-    dz: drop.z,
-    ang: flyAng
+// 隊員變動後：隊長離開則由隊內第一人接任；剩一人時關閉成員招募；無人則刪除該隊
+function fixTeam(st, room, tid) {
+  const T = st.teams.get(tid);
+  if (!T) return;
+  const mem = teamMembers(room, tid);
+  if (!mem.length) { st.teams.delete(tid); return; }
+  if (!mem.some(o => o.id === T.captain)) T.captain = mem[0].id;
+  if (mem.length === 1) T.recruit = false;
+}
+
+// 一隊的一次空投：人數 = 全隊每人各自「下一波人數」相加(組隊不會變少)；每人下次增加量不變
+function fireTeamWave(roomName, tid) {
+  const room = rooms.get(roomName), st = roomStates.get(roomName);
+  if (!room || !st) return;
+  const T = st.teams.get(tid);
+  const members = [...room].filter(o => o.team === tid);
+  if (!T || !members.length) { st.teams.delete(tid); return; }
+  let total = 0, wmax = 0;
+  for (const o of members) { total += 2 + o.wn; o.wn += 1; wmax = Math.max(wmax, o.wn); }
+  T.nextAt = Date.now() + WAVE_INTERVAL_MS;
+
+  const alive = members.filter(o => !o.dead);
+  const clusters = clusterMembers(alive.length ? alive : members);
+  const k = clusters.length, base = Math.floor(total / k), rem = total % k;
+  clusters.forEach((grp, idx) => {
+    const cnt = base + (idx < rem ? 1 : 0);
+    if (cnt <= 0) return;
+    const ref = grp[Math.floor(Math.random() * grp.length)];
+    const drop = pickDropZoneNear(ref.x, ref.z);
+    const baseId = st.nextNpcId;
+    st.nextNpcId += cnt;
+    for (let i = 0; i < cnt; i++) st.npcs.set(baseId + i, { id: baseId + i, hp: 100, sh: 100, tid });
+    const flyAng = Math.round(Math.random() * Math.PI * 2 * 1000) / 1000;
+    broadcastAll(room, { t: 'wave', w: wmax, cnt, baseId, dx: drop.x, dz: drop.z, ang: flyAng, tid });
   });
+  broadcastTeams(room);   // 同步新的倒數
+}
+
+function tickRoom(roomName) {
+  const room = rooms.get(roomName), st = roomStates.get(roomName);
+  if (!room || !st || room.size === 0) return;
+  const now = Date.now();
+  for (const [tid, T] of [...st.teams]) if (now >= T.nextAt) fireTeamWave(roomName, tid);
 }
 
 function ensureRoomState(roomName) {
   let st = roomStates.get(roomName);
   if (!st) {
     st = {
-      waveIndex: 0,
+      anchor: Date.now(),          // 以房間第一位玩家進入的時間為基準
       nextNpcId: 1,
-      lastWaveAt: Date.now(),
-      lastManualWave: 0,
       npcs: new Map(),
-      waveTimer: setInterval(() => triggerRoomWave(roomName), WAVE_INTERVAL_MS)
+      teams: new Map(),            // tid -> { nextAt, lastManual }
+      waveTimer: setInterval(() => tickRoom(roomName), 1000)
     };
     roomStates.set(roomName, st);
   }
@@ -157,6 +212,7 @@ wss.on('connection', (ws) => {
     name: '玩家',
     hp: 100,
     dead: false,
+    team: null, invite: null, lastInv: 0, wn: 0,
     x: 0, y: 0, z: 0,
     last80: 0, last10: 0, lastNpcHit: 0
   };
@@ -170,24 +226,26 @@ wss.on('connection', (ws) => {
       const name = String(m.room || '');
       if (!/^[a-z0-9-]{1,32}$/.test(name)) return;
       let room = rooms.get(name);
-      if (!room) { room = new Set(); rooms.set(name, room); }
+      if (!room) { room = new Set(); room.rname = name; rooms.set(name, room); }
       if (room.size >= MAX_PER_ROOM) { ws.close(); return; }
       c.room = room;
       c.roomName = name;
       c.name = String(m.name || '玩家').slice(0, 10);
+      c.team = 'T' + (nextTeam++);
       room.add(c);
 
       const st = ensureRoomState(name);
+      // 每位玩家進入時都有自己的波次等級與計時；組隊後才會平均
+      c.wn = 0;
+      st.teams.set(c.team, { nextAt: Date.now() + WAVE_INTERVAL_MS, lastManual: 0, captain: c.id, recruit: false });
       const host = getRoomHost(room);
-      const nextIn = Math.max(0, Math.round((WAVE_INTERVAL_MS - (Date.now() - st.lastWaveAt)) / 1000));
-      send(c, { t: 'you', id: c.id, host: host ? host.id : c.id, w: st.waveIndex, next: nextIn });
+      const tp = teamsPayload(room);
+      send(c, { t: 'you', id: c.id, host: host ? host.id : c.id, w: c.wn, next: tp.nx[c.team], tm: tp.m, th: tp.h, nx: tp.nx, cp: tp.cp, rc: tp.rc });
       broadcast(room, { t: 'n', n: room.size, host: host ? host.id : c.id });
       send(c, { t: 'n', n: room.size, host: host ? host.id : c.id });
+      broadcast(room, { t: 'teams', m: tp.m, h: tp.h, nx: tp.nx, cp: tp.cp, rc: tp.rc }, c);
 
-      // 房間首名玩家進入時，立即觸發第 1 波軍用運輸機空投 (初始 2 人)
-      if (st.waveIndex === 0) {
-        triggerRoomWave(name);
-      }
+      fireTeamWave(name, c.team);   // 每位玩家進入即獲得自己的第 1 波(2 人)
       return;
     }
 
@@ -210,7 +268,7 @@ wss.on('connection', (ws) => {
       broadcast(c.room, { t: 'fx', id: c.id, e: m.e }, c);
     } else if (m.t === 'hook') {
       const target = findIn(c.room, m.to), now = Date.now();
-      const ok = target && target !== c && !c.dead && !target.dead && !c.hooking && !target.hookedBy && now > (target.immune || 0) && now - (c.lastHook || 0) > 400 && Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z) <= 140;
+      const ok = target && target !== c && target.team !== c.team && !c.dead && !target.dead && !c.hooking && !target.hookedBy && now > (target.immune || 0) && now - (c.lastHook || 0) > 400 && Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z) <= 140;
       if (!ok) { send(c, { t: 'cut' }); return; }
       c.hooking = target.id; target.hookedBy = c.id; c.lastHook = now;
       send(target, { t: 'hooked', by: c.id });
@@ -231,7 +289,7 @@ wss.on('connection', (ws) => {
       const dmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
       if (!dmg || c.dead) return;
       const target = findIn(c.room, m.to);
-      if (!target || target === c || target.dead || target.iv) return;
+      if (!target || target === c || target.dead || target.iv || target.team === c.team) return; // 隊友不互傷
       const now = Date.now();
       const dist = Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z);
       if (dmg === 80) { if (now - c.last80 < 500 || dist > 15) return; c.last80 = now; }
@@ -244,25 +302,75 @@ wss.on('connection', (ws) => {
         send(c, { t: 'kill', by: c.id, bn: c.name, to: target.id, n: target.name });
         setTimeout(() => { target.hp = 100; target.dead = false; send(target, { t: 'hp', hp: 100 }); }, 1500);
       }
+    } else if (m.t === 'team_inv') {
+      const target = findIn(c.room, m.to), now = Date.now();
+      if (!target || target === c || c.dead || target.dead || target.team === c.team) return;
+      if (now - c.lastInv < 1000) return;
+      if (Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z) > TEAM_INVITE_RANGE) return;
+      const myT = st.teams.get(c.team), mySize = teamMembers(c.room, c.team).length;
+      // 隊伍內第一次發出邀請的人為隊長；之後只有隊長可招募，除非隊長開放成員招募
+      if (mySize > 1 && !(myT && (myT.captain === c.id || myT.recruit))) { send(c, { t: 'team_msg', k: 'noperm' }); return; }
+      if (mySize >= MAX_TEAM) { send(c, { t: 'team_msg', k: 'full' }); return; }
+      if (mySize <= 1 && myT) { myT.captain = c.id; myT.recruit = false; }
+      c.lastInv = now;
+      target.invite = { from: c.id, at: now };
+      send(target, { t: 'team_inv', from: c.id, n: c.name });
+      send(c, { t: 'team_msg', k: 'sent', n: target.name });
+    } else if (m.t === 'team_acc') {
+      const inv = c.invite; c.invite = null;
+      if (!inv || Date.now() - inv.at > 20000) return;
+      const from = findIn(c.room, inv.from);
+      if (!from || from.team === c.team) return;
+      if (teamMembers(c.room, from.team).length >= MAX_TEAM) { send(c, { t: 'team_msg', k: 'full' }); return; }
+      const old = c.team;
+      const n1 = teamMembers(c.room, from.team).length;           // 加入前的隊伍人數
+      const fromT = st.teams.get(from.team), oldT = st.teams.get(old);
+      if (fromT) {
+        // 全隊所有人的「下一波時間」取平均
+        const mine = oldT ? oldT.nextAt : fromT.nextAt;
+        fromT.nextAt = Math.round((fromT.nextAt * n1 + mine) / (n1 + 1));
+      }
+      c.team = from.team;
+      fixTeam(st, c.room, old);
+      clearHooks(c); // 組隊後解除彼此的鉤索
+      let mg = null;
+      if (teamMembers(c.room, old).length === 0) {
+        // 原本單人一隊：他那批敵人併入新隊伍
+        st.teams.delete(old);
+        for (const n of st.npcs.values()) if (n.tid === old) n.tid = c.team;
+        mg = { from: old, to: c.team };
+      }
+      broadcastTeams(c.room, mg ? { mg } : null);
+      broadcastAll(c.room, { t: 'team_msg', k: 'joined', n: c.name, to: from.name });
+    } else if (m.t === 'team_recruit') {
+      const T = st.teams.get(c.team);
+      if (!T || T.captain !== c.id || teamMembers(c.room, c.team).length < 2) return;
+      T.recruit = !T.recruit;
+      broadcastTeams(c.room);
+      for (const o of teamMembers(c.room, c.team)) send(o, { t: 'team_msg', k: 'recruit', on: T.recruit });
+    } else if (m.t === 'team_leave') {
+      if (teamMembers(c.room, c.team).length <= 1) return;
+      const prevT = st.teams.get(c.team), prevTid = c.team;
+      c.team = 'T' + (nextTeam++);
+      st.teams.set(c.team, { nextAt: prevT ? prevT.nextAt : Date.now() + WAVE_INTERVAL_MS, lastManual: 0, captain: c.id, recruit: false });
+      fixTeam(st, c.room, prevTid);
+      broadcastTeams(c.room);
+      broadcastAll(c.room, { t: 'team_msg', k: 'left', n: c.name });
     } else if (m.t === 'wave_req') {
-      // 玩家手動呼叫下一波軍用運輸機空投（節流保護 3 秒）
+      // 玩家手動呼叫自己這一隊的下一波空投（節流保護 3 秒），並重設該隊倒數
       if (!st) return;
+      const T = st.teams.get(c.team);
       const now = Date.now();
-      if (now - st.lastManualWave < 3000) return;
-      st.lastManualWave = now;
-      clearInterval(st.waveTimer);
-      triggerRoomWave(c.roomName);
-      st.waveTimer = setInterval(() => triggerRoomWave(c.roomName), WAVE_INTERVAL_MS);
+      if (!T || now - (T.lastManual || 0) < 3000) return;
+      T.lastManual = now;
+      fireTeamWave(c.roomName, c.team);
     } else if (m.t === 'npc_hit') {
       // 玩家攻擊 0級NPC敵人：同步防爆盾耐久 (100點) 與 NPC 血量 (100點)
       if (!st || c.dead) return;
       const npcId = Number(m.id);
       if (!Number.isFinite(npcId)) return;
-      let npc = st.npcs.get(npcId);
-      if (!npc) {
-        npc = { id: npcId, hp: 100, sh: 100 };
-        st.npcs.set(npcId, npc);
-      }
+      const npc = st.npcs.get(npcId);
+      if (!npc) return;
       const shDmg = m.sh === 10 ? 10 : 0;
       const hpDmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
       if (shDmg > 0 && npc.sh > 0) {
@@ -283,31 +391,18 @@ wss.on('connection', (ws) => {
         st.npcs.delete(npcId);
       }
     } else if (m.t === 'npc_spot') {
-      // 任一 NPC 目擊玩家時，全房同步 2 秒追蹤座標
+      // 某隊敵人目擊玩家時，同步該隊的 2 秒追蹤座標
       if (![m.x, m.y, m.z].every(Number.isFinite)) return;
-      broadcast(c.room, { t: 'npc_spot', x: m.x, y: m.y, z: m.z }, c);
-    } else if (m.t === 'npc_me') {
-      // 玩家受到 0級NPC 警棍 (15傷害+1秒眩暈) 或 手槍 (12傷害) 命中
-      if (c.dead || c.iv) return;
-      const now = Date.now();
-      if (now - c.lastNpcHit < 120) return;
-      c.lastNpcHit = now;
-      const dmg = m.d === 15 ? 15 : m.d === 12 ? 12 : 0;
-      if (!dmg) return;
-      c.hp = Math.max(0, c.hp - dmg);
-      send(c, { t: 'hp', hp: c.hp });
-      if (c.hp <= 0) {
-        c.dead = true;
-        clearHooks(c);
-        const killerName = String(m.bn || '0級敵兵').slice(0, 12);
-        broadcastAll(c.room, { t: 'kill', by: 'npc', bn: killerName, to: c.id, n: c.name });
-        setTimeout(() => { c.hp = 100; c.dead = false; send(c, { t: 'hp', hp: 100 }); }, 1500);
-      }
+      broadcast(c.room, { t: 'npc_spot', x: m.x, y: m.y, z: m.z, tid: String(m.tid || '').slice(0, 16), pid: String(m.pid || '').slice(0, 16) }, c);
     } else if (m.t === 'npc_sync') {
-      // 房主同步 NPC 座標、動作與武器狀態給同房其他玩家
-      const host = getRoomHost(c.room);
-      if (host !== c || !Array.isArray(m.list) || m.list.length > 48) return;
-      broadcast(c.room, { t: 'npc_sync', list: m.list }, c);
+      // 各隊的模擬者(隊內第一人)同步自己這隊敵人的狀態；無人認領的敵人由房主同步
+      if (!Array.isArray(m.list) || m.list.length > 48) return;
+      const live = new Set();
+      for (const o of c.room) live.add(o.team);
+      const isRoomHost = getRoomHost(c.room) === c;
+      const rows = m.list.filter(r => Array.isArray(r) && (r[11] === c.team || (isRoomHost && !live.has(r[11]))));
+      if (!rows.length) return;
+      broadcast(c.room, { t: 'npc_sync', list: rows }, c);
     } else if (m.t === 'npc_shot') {
       // 同步 NPC 手槍射擊子彈軌跡給同房玩家
       if (![m.x, m.y, m.z, m.vx, m.vy, m.vz].every(Number.isFinite)) return;
@@ -319,6 +414,7 @@ wss.on('connection', (ws) => {
     if (!c.room) return;
     clearHooks(c);
     c.room.delete(c);
+    { const stc = roomStates.get(c.roomName); if (stc) fixTeam(stc, c.room, c.team); }
     if (c.room.size === 0) {
       rooms.delete(c.roomName);
       cleanupRoomState(c.roomName);
@@ -326,6 +422,7 @@ wss.on('connection', (ws) => {
       const host = getRoomHost(c.room);
       broadcast(c.room, { t: 'left', id: c.id, host: host ? host.id : '' });
       broadcast(c.room, { t: 'n', n: c.room.size, host: host ? host.id : '' });
+      broadcastTeams(c.room);
     }
   });
 });
