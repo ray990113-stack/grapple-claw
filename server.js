@@ -333,6 +333,11 @@ wss.on('connection', (ws) => {
         send(c, { t: 'kill', by: c.id, bn: c.name, to: target.id, n: target.name });
         setTimeout(() => { target.hp = 100; target.dead = false; send(target, { t: 'hp', hp: 100 }); }, 1500);
       }
+    } else if (m.t === 'heal') {
+      // 回復硬碟：+50 血量 (300ms 節流)
+      const nowHl = Date.now();
+      if (c.dead || nowHl - (c.lastHeal || 0) < 300) return;
+      c.lastHeal = nowHl; c.hp = Math.min(100, c.hp + 50); send(c, { t: 'hp', hp: c.hp });
     } else if (m.t === 'slow') {
       // 玻璃碎片：對敵方玩家施加短暫緩速
       const target = findIn(c.room, m.to), now = Date.now();
