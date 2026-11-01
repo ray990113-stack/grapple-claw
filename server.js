@@ -1,16 +1,36 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
+// 首頁啟動時讀入記憶體並預先壓縮 (brotli / gzip)，之後每次請求不再讀硬碟、不再重複壓縮
+let page = null;
+function loadPage() {
+  const raw = fs.readFileSync(path.join(__dirname, 'index.html'));
+  page = {
+    raw,
+    br: zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }),
+    gz: zlib.gzipSync(raw, { level: 9 }),
+    etag: '"' + crypto.createHash('md5').update(raw).digest('hex') + '"'
+  };
+}
+try { loadPage(); } catch (e) { page = null; }
+
 const server = http.createServer((req, res) => {
   if (req.url === '/healthz') { res.end('ok'); return; }
-  fs.readFile(path.join(__dirname, 'index.html'), (err, data) => {
-    if (err) { res.writeHead(500); res.end('index.html not found'); return; }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(data);
-  });
+  if (!page) { try { loadPage(); } catch (e) { res.writeHead(500); res.end('index.html not found'); return; } }
+  const h = { 'Content-Type': 'text/html; charset=utf-8', 'Vary': 'Accept-Encoding', 'ETag': page.etag, 'Cache-Control': 'no-cache' };
+  if (req.headers['if-none-match'] === page.etag) { res.writeHead(304, h); res.end(); return; }
+  const ae = String(req.headers['accept-encoding'] || '');
+  let body = page.raw;
+  if (/\bbr\b/.test(ae)) { h['Content-Encoding'] = 'br'; body = page.br; }
+  else if (/\bgzip\b/.test(ae)) { h['Content-Encoding'] = 'gzip'; body = page.gz; }
+  h['Content-Length'] = body.length;
+  res.writeHead(200, h);
+  res.end(req.method === 'HEAD' ? undefined : body);
 });
 
 const wss = new WebSocketServer({ server });
@@ -24,15 +44,18 @@ const MAX_PER_ROOM = 16;
 const WAVE_INTERVAL_MS = 300 * 1000; // 每 5 分鐘 (300秒) 空投一波
 
 function send(c, o) {
-  if (c.ws.readyState === 1) c.ws.send(JSON.stringify(o));
+  if (c.ws.readyState === 1) c.ws.send(typeof o === 'string' ? o : JSON.stringify(o));
 }
 
+// 廣播時只序列化一次 (原本每位收件者都重複 JSON.stringify)
 function broadcast(room, o, except) {
-  for (const c of room) if (c !== except) send(c, o);
+  const s = JSON.stringify(o);
+  for (const c of room) if (c !== except) send(c, s);
 }
 
 function broadcastAll(room, o) {
-  for (const c of room) send(c, o);
+  const s = JSON.stringify(o);
+  for (const c of room) send(c, s);
 }
 
 function findIn(room, id) {
@@ -286,14 +309,22 @@ wss.on('connection', (ws) => {
       }
     } else if (m.t === 'hit') {
       // PvP 玩家互擊判定：鋼刃 80 傷害、氣槍 10 傷害
-      const dmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
+      // k: 'b' 刀(含特製)、'g' 槍(含特製)、's' 特製副傷害(爆炸/碎片)；舊客戶端以 d=80/10 判斷
+      const dmg = Number.isFinite(m.d) ? Math.max(0, Math.min(80, Math.round(m.d))) : 0;
+      const kind = m.k === 's' ? 's' : (m.k === 'b' || (m.k !== 'g' && m.d === 80)) ? 'b' : 'g';
       if (!dmg || c.dead) return;
       const target = findIn(c.room, m.to);
       if (!target || target === c || target.dead || target.iv || target.team === c.team) return; // 隊友不互傷
       const now = Date.now();
       const dist = Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z);
-      if (dmg === 80) { if (now - c.last80 < 500 || dist > 15) return; c.last80 = now; }
-      else { if (now - c.last10 < 50 || dist > 150) return; c.last10 = now; }
+      if (kind === 'b') { if (now - c.last80 < 500 || dist > 15) return; c.last80 = now; }
+      else if (kind === 'g') { if (now - c.last10 < 50 || dist > 150) return; c.last10 = now; }
+      else {
+        if (dist > 150) return;
+        if (!c.sh || Object.keys(c.sh).length > 50) c.sh = {};
+        if (now - (c.sh[target.id] || 0) < 20) return; c.sh[target.id] = now;
+      }
+
       target.hp = Math.max(0, target.hp - dmg);
       send(target, { t: 'hp', hp: target.hp });
       if (target.hp <= 0) {
@@ -302,6 +333,12 @@ wss.on('connection', (ws) => {
         send(c, { t: 'kill', by: c.id, bn: c.name, to: target.id, n: target.name });
         setTimeout(() => { target.hp = 100; target.dead = false; send(target, { t: 'hp', hp: 100 }); }, 1500);
       }
+    } else if (m.t === 'slow') {
+      // 玻璃碎片：對敵方玩家施加短暫緩速
+      const target = findIn(c.room, m.to), now = Date.now();
+      if (!target || target === c || target.team === c.team || c.dead || now - (c.lastSlow || 0) < 50) return;
+      if (Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z) > 150) return;
+      c.lastSlow = now; send(target, { t: 'slow' });
     } else if (m.t === 'team_inv') {
       const target = findIn(c.room, m.to), now = Date.now();
       if (!target || target === c || c.dead || target.dead || target.team === c.team) return;
@@ -364,6 +401,23 @@ wss.on('connection', (ws) => {
       if (!T || now - (T.lastManual || 0) < 3000) return;
       T.lastManual = now;
       fireTeamWave(c.roomName, c.team);
+    } else if (m.t === 'npc_me') {
+      // 0級敵兵打到玩家：伺服器端扣血並同步 HP (警棍 15、手槍 12)
+      const dmg = m.d === 15 ? 15 : m.d === 12 ? 12 : 0;
+      const now = Date.now();
+      if (!dmg || c.dead || c.iv) return;
+      if (now - (c.lastNpcHit || 0) < 100) return;
+      c.lastNpcHit = now;
+      c.hp = Math.max(0, c.hp - dmg);
+      send(c, { t: 'hp', hp: c.hp });
+      if (c.hp <= 0) {
+        c.dead = true; clearHooks(c);
+        const bn = String(m.bn || '0級敵兵').slice(0, 16);
+        const k = { t: 'kill', by: 'npc', bn, to: c.id, n: c.name };
+        broadcast(c.room, k, c);
+        send(c, k);
+        setTimeout(() => { c.hp = 100; c.dead = false; send(c, { t: 'hp', hp: 100 }); }, 1500);
+      }
     } else if (m.t === 'npc_hit') {
       // 玩家攻擊 0級NPC敵人：同步防爆盾耐久 (100點) 與 NPC 血量 (100點)
       if (!st || c.dead) return;
@@ -371,8 +425,11 @@ wss.on('connection', (ws) => {
       if (!Number.isFinite(npcId)) return;
       const npc = st.npcs.get(npcId);
       if (!npc) return;
+      const nowH = Date.now(); if (!c.nh || Object.keys(c.nh).length > 200) c.nh = {};
+      if (m.d > 0 && nowH - (c.nh[npcId] || 0) < 20) return;   // 同一敵人節流
+      c.nh[npcId] = nowH;
       const shDmg = m.sh === 10 ? 10 : 0;
-      const hpDmg = m.d === 80 ? 80 : m.d === 10 ? 10 : 0;
+      const hpDmg = Number.isFinite(m.d) ? Math.max(0, Math.min(80, Math.round(m.d))) : 0;
       if (shDmg > 0 && npc.sh > 0) {
         npc.sh = Math.max(0, npc.sh - shDmg);
       }
